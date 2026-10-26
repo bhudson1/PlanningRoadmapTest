@@ -1,0 +1,136 @@
+{
+  "version": "DEMO",
+  "created_utc": "2026-10-26T22:15:37.254383+00:00",
+  "grid_size_m": 100,
+  "cell_count": 120,
+  "source_cell_size_m": 10,
+  "factors": [
+    {
+      "id": "F001",
+      "stage": "Baseline",
+      "category": "Infrastructure",
+      "name": "Fire Flow",
+      "description": "Synthetic sample value \u2014 for interface preview only",
+      "native_field": "V001",
+      "movable": false,
+      "original_weight_pct": 0
+    },
+    {
+      "id": "F002",
+      "stage": "Baseline",
+      "category": "Schools",
+      "name": "Elementary School Capacity",
+      "description": "Synthetic sample value \u2014 for interface preview only",
+      "native_field": "V002",
+      "movable": false,
+      "original_weight_pct": 0
+    },
+    {
+      "id": "F003",
+      "stage": "Baseline",
+      "category": "Transportation",
+      "name": "Access to Transit",
+      "description": "Synthetic sample value \u2014 for interface preview only",
+      "native_field": "V003",
+      "movable": false,
+      "original_weight_pct": 0
+    },
+    {
+      "id": "F004",
+      "stage": "Baseline",
+      "category": "Daily Needs",
+      "name": "Access to Grocery Stores & Bakeries",
+      "description": "Synthetic sample value \u2014 for interface preview only",
+      "native_field": null,
+      "movable": true,
+      "original_weight_pct": 0
+    },
+    {
+      "id": "F005",
+      "stage": "Baseline",
+      "category": "Daily Needs",
+      "name": "Access to Health Services",
+      "description": "Synthetic sample value \u2014 for interface preview only",
+      "native_field": null,
+      "movable": true,
+      "original_weight_pct": 0
+    },
+    {
+      "id": "F006",
+      "stage": "Baseline",
+      "category": "Community Spaces",
+      "name": "Access to Community Spaces",
+      "description": "Synthetic sample value \u2014 for interface preview only",
+      "native_field": null,
+      "movable": true,
+      "original_weight_pct": 0
+    },
+    {
+      "id": "F007",
+      "stage": "Gap",
+      "category": "Existing Housing Types",
+      "name": "Existing housing-type mix gap",
+      "description": "Synthetic sample value \u2014 for interface preview only",
+      "native_field": null,
+      "movable": false,
+      "original_weight_pct": 0
+    },
+    {
+      "id": "F008",
+      "stage": "Gap",
+      "category": "Pipeline Housing Types",
+      "name": "Pipeline housing-type mix gap",
+      "description": "Synthetic sample value \u2014 for interface preview only",
+      "native_field": null,
+      "movable": false,
+      "original_weight_pct": 0
+    },
+    {
+      "id": "F009",
+      "stage": "Gap",
+      "category": "Existing Housing Tenures",
+      "name": "Existing tenure priority score",
+      "description": "Synthetic sample value \u2014 for interface preview only",
+      "native_field": null,
+      "movable": false,
+      "original_weight_pct": 0
+    },
+    {
+      "id": "F010",
+      "stage": "Gap",
+      "category": "Pipeline Housing Tenures",
+      "name": "Pipeline tenure priority score",
+      "description": "Synthetic sample value \u2014 for interface preview only",
+      "native_field": null,
+      "movable": false,
+      "original_weight_pct": 0
+    }
+  ],
+  "study": "SYTHETIC DEMO \u2014 not real city data",
+  "housing": {
+    "targets": {
+      "Existing Housing Types": {
+        "Low density": 20,
+        "Medium density": 30,
+        "High density": 50
+      },
+      "Pipeline Housing Types": {
+        "Low density": 20,
+        "Medium density": 30,
+        "High density": 50
+      }
+    },
+    "tenure_thresholds": {
+      "Rental": {
+        "high": 0,
+        "combined": 99.9
+      }
+    },
+    "tenure_direction": "Gap (ownership high)"
+  },
+  "report": {
+    "warnings": [
+      "All demo scores and shares are fabricated."
+    ]
+  }
+}

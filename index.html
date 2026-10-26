@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#142734"><title>Planning Opportunity | Scenario Explorer</title>
+<meta name="theme-color" content="#f1f2f2"><title>Planning Opportunity | Scenario Explorer</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link rel="stylesheet" href="styles.css"></head>
 <body>
@@ -14,24 +14,54 @@
       <div id="dataTag" class="data-tag">No data loaded</div>
     </header>
     <div class="top-tools">
-      <label class="toolbar-field">Map view <select id="mapMode"><option value="bivariate">Baseline × Gap</option><option value="baseline">Baseline score</option><option value="gap">Gap score</option><option value="combined">Combined score</option></select></label>
+      <div class="map-context" id="mapContext">COMBINED SCORE</div>
       <button id="resetView" class="button-quiet" title="Zoom to all study-area cells">⌖ <span>Extent</span></button>
     </div>
     <div id="loading" class="empty-panel" role="status"><div class="empty-icon">▦</div><h2>Connect your 100 m analysis</h2><p>Run the new ArcGIS Pro export tool, then place its <code>grid.geojson</code> and <code>meta.json</code> in this site's <code>data</code> folder.</p><div class="empty-actions"><button id="demoBtn" class="button-primary">Preview with synthetic data</button><button id="retryBtn" class="button-light">Try loading exported data</button></div><p class="fine">The demo is synthetic and is not an assessment of Vancouver.</p></div>
     <div id="legend" class="legend" hidden></div>
-    <div id="bottomNote" class="map-footnote">Equal-weight reference; adjust any sliders to test a scenario.</div>
+    <div id="bottomNote" class="map-footnote">Equal-weight model · Select Gap, Baseline or Combined to change the map.</div>
   </main>
   <aside id="sidebar">
-    <div class="sidebar-head"><div class="eyebrow">INTERACTIVE SCENARIO MODEL</div><h1>Explore the trade-offs</h1><p>Reassign amenity factors and shift their importance. Every grid cell updates in your browser.</p></div>
+    <div class="sidebar-head"><div class="eyebrow">INTERACTIVE SCENARIO MODEL</div><h1>Explore planning opportunities</h1><p>Choose an analysis, adjust its weights, and see the 100 m grid update immediately.</p></div>
+    <nav class="analysis-tabs" role="tablist" aria-label="Analysis mode">
+      <button id="tabGap" class="analysis-tab" role="tab" aria-controls="panelGap" aria-selected="false" tabindex="-1" data-tab="gap"><span>GAP</span><small>Housing diversity</small></button>
+      <button id="tabBaseline" class="analysis-tab" role="tab" aria-controls="panelBaseline" aria-selected="false" tabindex="-1" data-tab="baseline"><span>BASELINE</span><small>Growth readiness</small></button>
+      <button id="tabCombined" class="analysis-tab active" role="tab" aria-controls="panelCombined" aria-selected="true" tabindex="0" data-tab="combined"><span>COMBINED</span><small>Gap + Baseline</small></button>
+    </nav>
     <div class="metrics"><div><small>Baseline</small><strong id="metricBase">—</strong></div><div><small>Gap</small><strong id="metricGap">—</strong></div><div><small>Combined</small><strong id="metricCombined">—</strong></div></div>
     <div class="sidebar-scroll">
-      <section class="cell-section"><div class="section-eyebrow">SELECTED GRID CELL</div><div class="cell-top"><h2 id="cellTitle">Choose a 100 m cell</h2><button id="clearCell" class="tiny" title="Clear selection">Clear</button></div><div id="cellDetail" class="muted">Click any grid cell to inspect its individual scores and available original values.</div></section>
-      <section class="method-section"><div class="section-row"><h2>Scenario controls</h2><button id="resetWeights" class="button-inline">Reset all</button></div><p class="hint">Slider values are relative influence. We normalize their weights to 100% <strong>within each stage</strong>. Missing factors are excluded from that cell's weighted average.</p>
-      <div class="split-control"><div><span>Combined score balance</span><small>Baseline <b id="splitBase">50%</b> · Gap <b id="splitGap">50%</b></small></div><input type="range" id="split" min="0" max="100" step="5" value="50" aria-label="Share of combined score contributed by Baseline"></div>
-      <div class="move-box"><div class="section-eyebrow">AMENITY-DELIVERY SCENARIO</div><label class="switch-line"><span><strong>Daily Needs → Gap</strong><small>Lower access becomes a larger gap</small></span><input id="moveNeeds" type="checkbox" role="switch"></label><label class="switch-line"><span><strong>Community Centres / Spaces → Gap</strong><small>Model amenity investment through future plans</small></span><input id="moveCommunity" type="checkbox" role="switch"></label><p class="micro">Moved factors use <b>6 − existing accessibility score</b>. They contribute to Gap rather than Baseline; original source data are unchanged.</p></div>
+      <section id="panelGap" class="tab-panel weight-section" role="tabpanel" aria-labelledby="tabGap" hidden>
+        <div class="section-row"><h2>Housing diversity gap</h2><button id="resetGap" class="button-inline">Reset weights</button></div>
+        <p class="hint">Adjust the four housing inputs independently. Weights automatically normalize to 100% within Gap. All four begin at equal influence.</p>
+        <div class="weight-header"><span>Gap factor</span><span>Relative weight</span><span>Share · Score</span></div>
+        <div id="gapFactorList"></div>
+        <p class="micro" id="gapMovementNote" hidden>Additional amenity factors have been moved from Baseline. Their scores are reversed so lower accessibility indicates a greater gap.</p>
       </section>
-      <section class="weight-section"><div class="section-row"><h2>Individual factor weights</h2><div id="factorCount" class="subcount">—</div></div><div id="factorList"></div></section>
-      <section class="data-notes"><h2>Data & methodology</h2><p id="dataNotes">No model loaded yet.</p><p>Scores are averaged from valid 10 m analysis pixels in each fixed 100 m polygon. Scenarios reweight these exported scores; no GIS processing is performed in the browser.</p><div class="actions"><button id="copyScenario" class="button-light">Copy scenario link</button><button id="exportScenario" class="button-light">Export scenario CSV</button></div></section>
+      <section id="panelBaseline" class="tab-panel weight-section" role="tabpanel" aria-labelledby="tabBaseline" hidden>
+        <div class="section-row"><h2>Baseline readiness factors</h2><button id="resetBaseline" class="button-inline">Reset weights</button></div>
+        <p class="hint">Every Baseline factor has its own slider, including factors that previously had zero weight. Relative weights normalize to 100%.</p>
+        <div class="weight-header"><span>Baseline factor</span><span>Relative weight</span><span>Share · Score</span></div>
+        <div id="baselineFactorList"></div>
+        <details class="move-box"><summary class="move-summary">Amenity delivery scenario <span class="subcount">Optional</span></summary>
+          <p class="micro">Test area planning as a way to deliver amenities rather than requiring existing access before growth. Reassigned factors appear under the Gap tab, alongside the four housing factors.</p>
+          <label class="switch-line"><span><strong>Daily Needs → Gap</strong><small>Lower existing access becomes a higher gap</small></span><input id="moveNeeds" type="checkbox" role="switch"></label>
+          <label class="switch-line"><span><strong>Community Centres / Spaces → Gap</strong><small>Model opportunities for new community amenities</small></span><input id="moveCommunity" type="checkbox" role="switch"></label>
+          <p class="micro">Moved factor scores are calculated as 6 − existing accessibility score. Source data are unchanged.</p>
+        </details>
+      </section>
+      <section id="panelCombined" class="tab-panel" role="tabpanel" aria-labelledby="tabCombined">
+        <div class="section-row"><h2>Combined score balance</h2><button id="resetCombined" class="button-inline">Reset balance</button></div>
+        <p class="hint">Keep the factor weights selected in the other tabs. Shift only how much Baseline and Gap contribute to the combined score.</p>
+        <div class="balance-card">
+          <div class="balance-values"><div><small>BASELINE</small><strong id="splitBase">50%</strong></div><div class="balance-plus">+</div><div class="align-right"><small>GAP</small><strong id="splitGap">50%</strong></div></div>
+          <input type="range" id="split" min="0" max="100" step="1" value="50" aria-label="Contribution of Baseline to combined score, as a percentage" />
+          <div class="split-ends"><span>100% Gap</span><span>Equal balance</span><span>100% Baseline</span></div>
+        </div>
+        <p class="formula" id="combinedFormula">Combined = 50% Baseline + 50% Gap</p>
+        <p class="micro">Changing this slider never alters the underlying Baseline or Gap factor weights. Switch tabs to edit those weights.</p>
+      </section>
+      <section class="cell-section"><div class="section-eyebrow">SELECTED 100 M GRID CELL</div><div class="cell-top"><h2 id="cellTitle">Choose a 100 m cell</h2><button id="clearCell" class="tiny" title="Clear selection">Clear</button></div><div id="cellDetail" class="muted">Click a grid cell to inspect its scores, housing composition and original source values.</div></section>
+      <section class="data-notes"><h2>Data & methodology</h2><p id="dataNotes">No model loaded yet.</p><p>Scores are averaged from valid 10 m analysis pixels in each fixed 100 m polygon. Browser scenarios reweight those scores without rerunning GIS analysis.</p><div class="actions"><button id="copyScenario" class="button-light">Copy scenario link</button><button id="exportScenario" class="button-light">Export scenario CSV</button><button id="resetWeights" class="button-light">Reset all</button></div></section>
     </div>
     <footer class="sidebar-footer"><span id="cellCount">— cells</span><span>100 m grid · 1–5 scores</span></footer>
   </aside>
