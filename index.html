@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#142734"><title>Planning Opportunity | Scenario Explorer</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<link rel="stylesheet" href="styles.css"></head>
+<body>
+<div id="shell">
+  <main id="map-area" aria-label="Interactive planning opportunity map">
+    <div id="map"></div>
+    <header class="brand">
+      <div class="brand-symbol" aria-hidden="true">▤</div>
+      <div><div class="eyebrow">AREA PLANNING ROADMAP</div><div class="brand-name">Planning Opportunity <span>Explorer</span></div></div>
+      <div id="dataTag" class="data-tag">No data loaded</div>
+    </header>
+    <div class="top-tools">
+      <label class="toolbar-field">Map view <select id="mapMode"><option value="bivariate">Baseline × Gap</option><option value="baseline">Baseline score</option><option value="gap">Gap score</option><option value="combined">Combined score</option></select></label>
+      <button id="resetView" class="button-quiet" title="Zoom to all study-area cells">⌖ <span>Extent</span></button>
+    </div>
+    <div id="loading" class="empty-panel" role="status"><div class="empty-icon">▦</div><h2>Connect your 100 m analysis</h2><p>Run the new ArcGIS Pro export tool, then place its <code>grid.geojson</code> and <code>meta.json</code> in this site's <code>data</code> folder.</p><div class="empty-actions"><button id="demoBtn" class="button-primary">Preview with synthetic data</button><button id="retryBtn" class="button-light">Try loading exported data</button></div><p class="fine">The demo is synthetic and is not an assessment of Vancouver.</p></div>
+    <div id="legend" class="legend" hidden></div>
+    <div id="bottomNote" class="map-footnote">Equal-weight reference; adjust any sliders to test a scenario.</div>
+  </main>
+  <aside id="sidebar">
+    <div class="sidebar-head"><div class="eyebrow">INTERACTIVE SCENARIO MODEL</div><h1>Explore the trade-offs</h1><p>Reassign amenity factors and shift their importance. Every grid cell updates in your browser.</p></div>
+    <div class="metrics"><div><small>Baseline</small><strong id="metricBase">—</strong></div><div><small>Gap</small><strong id="metricGap">—</strong></div><div><small>Combined</small><strong id="metricCombined">—</strong></div></div>
+    <div class="sidebar-scroll">
+      <section class="cell-section"><div class="section-eyebrow">SELECTED GRID CELL</div><div class="cell-top"><h2 id="cellTitle">Choose a 100 m cell</h2><button id="clearCell" class="tiny" title="Clear selection">Clear</button></div><div id="cellDetail" class="muted">Click any grid cell to inspect its individual scores and available original values.</div></section>
+      <section class="method-section"><div class="section-row"><h2>Scenario controls</h2><button id="resetWeights" class="button-inline">Reset all</button></div><p class="hint">Slider values are relative influence. We normalize their weights to 100% <strong>within each stage</strong>. Missing factors are excluded from that cell's weighted average.</p>
+      <div class="split-control"><div><span>Combined score balance</span><small>Baseline <b id="splitBase">50%</b> · Gap <b id="splitGap">50%</b></small></div><input type="range" id="split" min="0" max="100" step="5" value="50" aria-label="Share of combined score contributed by Baseline"></div>
+      <div class="move-box"><div class="section-eyebrow">AMENITY-DELIVERY SCENARIO</div><label class="switch-line"><span><strong>Daily Needs → Gap</strong><small>Lower access becomes a larger gap</small></span><input id="moveNeeds" type="checkbox" role="switch"></label><label class="switch-line"><span><strong>Community Centres / Spaces → Gap</strong><small>Model amenity investment through future plans</small></span><input id="moveCommunity" type="checkbox" role="switch"></label><p class="micro">Moved factors use <b>6 − existing accessibility score</b>. They contribute to Gap rather than Baseline; original source data are unchanged.</p></div>
+      </section>
+      <section class="weight-section"><div class="section-row"><h2>Individual factor weights</h2><div id="factorCount" class="subcount">—</div></div><div id="factorList"></div></section>
+      <section class="data-notes"><h2>Data & methodology</h2><p id="dataNotes">No model loaded yet.</p><p>Scores are averaged from valid 10 m analysis pixels in each fixed 100 m polygon. Scenarios reweight these exported scores; no GIS processing is performed in the browser.</p><div class="actions"><button id="copyScenario" class="button-light">Copy scenario link</button><button id="exportScenario" class="button-light">Export scenario CSV</button></div></section>
+    </div>
+    <footer class="sidebar-footer"><span id="cellCount">— cells</span><span>100 m grid · 1–5 scores</span></footer>
+  </aside>
+</div>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script type="module" src="app.js"></script>
+</body></html>
