@@ -21,10 +21,10 @@
     </div>
     <div id="loading" class="empty-panel" role="status"><div class="empty-icon">▦</div><h2>Connect your 100 m analysis</h2><p>Run the new ArcGIS Pro export tool, then place its <code>grid.geojson</code> and <code>meta.json</code> in this site's <code>data</code> folder.</p><div class="empty-actions"><button id="demoBtn" class="button-primary">Preview with synthetic data</button><button id="retryBtn" class="button-light">Try loading exported data</button></div><p class="fine">The demo is synthetic and is not an assessment of Vancouver.</p></div>
     <div id="legend" class="legend" hidden></div>
-    <div id="bottomNote" class="map-footnote">Equal-weight model · Select Gap, Baseline or Combined to change the map.</div>
+    <div id="bottomNote" class="map-footnote">Spreadsheet-default weights · Select Gap, Baseline or Combined to change the map.</div>
   </main>
   <aside id="sidebar">
-    <div class="sidebar-head"><div class="eyebrow">INTERACTIVE SCENARIO MODEL</div><h1>Explore planning opportunities</h1><p>Choose an analysis, adjust its weights, and see the 100 m grid update immediately.</p></div>
+    <div class="sidebar-head"><div class="eyebrow">INTERACTIVE SCENARIO MODEL</div><h1>Explore planning opportunities</h1><p>Choose an analysis, adjust its weights in percentage points, and see the 100 m grid update immediately.</p></div>
     <nav class="analysis-tabs" role="tablist" aria-label="Analysis mode">
       <button id="tabGap" class="analysis-tab" role="tab" aria-controls="panelGap" aria-selected="false" tabindex="-1" data-tab="gap"><span>GAP</span><small>Housing diversity</small></button>
       <button id="tabBaseline" class="analysis-tab" role="tab" aria-controls="panelBaseline" aria-selected="false" tabindex="-1" data-tab="baseline"><span>BASELINE</span><small>Growth readiness</small></button>
@@ -38,15 +38,17 @@
       </details>
       <section id="panelGap" class="tab-panel weight-section" role="tabpanel" aria-labelledby="tabGap" hidden>
         <div class="section-row"><h2>Housing diversity gap</h2><button id="resetGap" class="button-inline">Reset weights</button></div>
-        <p class="hint">Adjust the four housing inputs independently. Weights automatically normalize to 100% within Gap. All four begin at equal influence.</p>
-        <div class="weight-header"><span>Gap factor</span><span>Relative weight</span><span>Share · Score</span></div>
+        <p class="hint">Adjust weights in 1% steps, in spreadsheet order. Defaults come from the input workbook. The total flags changes above or below 100%.</p>
+        <div id="gapWeightStatus" class="weight-total" role="status" aria-live="polite"></div>
+        <div class="weight-header"><span>Gap factor</span><span>Weight / Δ default</span><span>Score</span></div>
         <div id="gapFactorList"></div>
         <p class="micro" id="gapMovementNote" hidden>Additional amenity factors have been moved from Baseline. Their scores are reversed so lower accessibility indicates a greater gap.</p>
       </section>
       <section id="panelBaseline" class="tab-panel weight-section" role="tabpanel" aria-labelledby="tabBaseline" hidden>
         <div class="section-row"><h2>Baseline readiness factors</h2><button id="resetBaseline" class="button-inline">Reset weights</button></div>
-        <p class="hint">Every Baseline factor has its own slider, including factors that previously had zero weight. Relative weights normalize to 100%.</p>
-        <div class="weight-header"><span>Baseline factor</span><span>Relative weight</span><span>Share · Score</span></div>
+        <p class="hint">Factors follow the spreadsheet row order and start at the spreadsheet weights (100% total). Use arrows to change by 1%; the signed change appears beneath each weight. A warning appears if the total is not 100%.</p>
+        <div id="baselineWeightStatus" class="weight-total" role="status" aria-live="polite"></div>
+        <div class="weight-header"><span>Baseline factor</span><span>Weight / Δ default</span><span>Score</span></div>
         <div id="baselineFactorList"></div>
         <details class="move-box"><summary class="move-summary">Amenity delivery scenario <span class="subcount">Optional</span></summary>
           <p class="micro">Test area planning as a way to deliver amenities rather than requiring existing access before growth. Reassigned factors appear under the Gap tab, alongside the four housing factors.</p>

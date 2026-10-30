@@ -2,7 +2,7 @@ import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,pre
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
-const state={data:null,meta:null,selectedId:null,mode:'combined',mapLoaded:false,demo:false,
+const state={data:null,meta:null,defaults:{},selectedId:null,mode:'combined',mapLoaded:false,demo:false,
   settings:{weights:{},moveNeeds:false,moveCommunity:false,baselineShare:50}};
 // OSM Standard raster tiles, desaturated entirely in MapLibre paint.
 // No key, no CARTO dependency. Interactive viewport requests only, with attribution.
@@ -325,29 +325,82 @@ function updateSelection(){
   }
  }
 }
+// Factor records retain the row order of their original spreadsheet.
+// They carry the spreadsheet's original_weight_pct (no equal-weight reset).
+function defaultWeights(factors){
+ const result={};
+ for(const stage of ['Baseline','Gap']){
+   const group=factors.filter(f=>f.stage===stage);
+   // New exports preserve the workbook's literal weights, even if its total
+   // is not 100%; display the discrepancy rather than silently normalizing it.
+   if(group.every(f=>f.default_weight!==undefined && Number.isFinite(Number(f.default_weight)))){
+     for(const f of group)result[f.id]=Math.max(0,Math.min(100,Math.round(Number(f.default_weight))));
+     continue;
+   }
+   const values=group.map(f=>Math.max(0,Number(f.original_weight_pct??0)));
+   // Earlier exports included percentage weights but not the raw workbook value.
+   if(!values.some(x=>x>0)){
+     for(const f of group)result[f.id]=0;
+     continue;
+   }
+   // Largest remainder rounding gives integer values that total 100 for
+   // percentage-based metadata, while preserving exact integer inputs.
+   const exact=values.map(v=>100*v/values.reduce((a,b)=>a+b,0));
+   const floors=exact.map(Math.floor);
+   const remainder=100-floors.reduce((a,b)=>a+b,0);
+   const ranked=exact.map((n,i)=>({i,frac:n-floors[i]})).sort((a,b)=>b.frac-a.frac||a.i-b.i);
+   for(let k=0;k<remainder;k++)floors[ranked[k].i]++;
+   group.forEach((f,i)=>{result[f.id]=floors[i];});
+ }
+ return result;
+}
+function formatDelta(delta){return delta>0?`+${delta}`:String(delta);}
+function setWeight(f,raw){
+ const n=Number(raw);
+ if(!Number.isFinite(n))return;
+ state.settings.weights[f.id]=Math.max(0,Math.min(100,Math.round(n)));
+ const input=$('weight_'+f.id);if(input)input.value=state.settings.weights[f.id];
+ updateWeightShares();
+ scheduleUpdate();
+}
 function addFactorRows(holder,stage){
  const factors=state.meta.factors.filter(f=>currentStage(f,state.settings)===stage);
- const categories=[...new Set(factors.map(f=>f.category))];
- for(const category of categories){
-   const heading=document.createElement('div');heading.className='category-name';heading.textContent=category;
-   holder.append(heading);
-   for(const f of factors.filter(f=>f.category===category)){
+ // Keep the original row order, including repeated category sections.
+ // Grouping by unique category would relocate later Environmental rows.
+ let previousCategory=null;
+ for(const f of factors){
+   if(f.category!==previousCategory){
+     const heading=document.createElement('div');heading.className='category-name';heading.textContent=f.category;
+     holder.append(heading);
+     previousCategory=f.category;
+   }
      const row=document.createElement('div');row.className='factor-row';
      const label=document.createElement('div');label.className='factor-title';
      const labelName=document.createElement('div');labelName.textContent=f.name;label.append(labelName);
      const raw=document.createElement('div');raw.id='native_'+f.id;raw.className='native-text';label.append(raw);
      if(f.description)label.title=f.description;
-     const slider=document.createElement('div');slider.className='factor-slider';
-     const input=document.createElement('input');input.type='range';input.min=0;input.max=10;input.step=.5;
-     input.value=state.settings.weights[f.id]??5;input.setAttribute('aria-label','Relative weight for '+f.name);
-     const out=document.createElement('output');out.id='val_'+f.id;out.textContent=String(input.value);
-     input.addEventListener('input',()=>{
-       state.settings.weights[f.id]=Number(input.value);out.textContent=String(input.value);scheduleUpdate();
-     });slider.append(input,out);
-     const pct=document.createElement('div');pct.className='weight-label';
-     pct.innerHTML=`<span class="factor-percent" id="pct_${f.id}">—</span><span class="factor-value missing" id="score_${f.id}">—</span>`;
-     row.append(label,slider,pct);holder.append(row);
-   }
+     const controls=document.createElement('div');controls.className='weight-control';
+     const stepper=document.createElement('div');stepper.className='weight-stepper';
+     const field=document.createElement('input');field.type='number';field.min='0';field.max='100';field.step='1';field.inputMode='numeric';
+     field.id='weight_'+f.id;field.className='weight-input';field.value=state.settings.weights[f.id]??0;
+     field.setAttribute('aria-label',`Weight in percent for ${f.name}`);
+     field.addEventListener('input',()=>{if(field.value!=='' && Number.isFinite(Number(field.value)))setWeight(f,field.value);});
+     field.addEventListener('change',()=>{setWeight(f,field.value===''?state.settings.weights[f.id]:field.value);});
+     const pct=document.createElement('span');pct.className='percent-symbol';pct.textContent='%';
+     const arrows=document.createElement('div');arrows.className='weight-arrows';
+     for(const [delta,sign] of [[1,'▲'],[-1,'▼']]){
+       const btn=document.createElement('button');btn.type='button';btn.className='weight-arrow';btn.textContent=sign;
+       btn.setAttribute('aria-label',`${delta>0?'Increase':'Decrease'} ${f.name} by one percentage point`);
+       btn.addEventListener('click',()=>setWeight(f,(state.settings.weights[f.id]??0)+delta));
+       arrows.append(btn);
+     }
+     stepper.append(field,pct,arrows);
+     const note=document.createElement('div');note.className='weight-default-note';
+     note.innerHTML=`<span>Default ${state.defaults[f.id]??0}%</span><strong id="delta_${f.id}" class="weight-delta">0</strong>`;
+     controls.append(stepper,note);
+     const score=document.createElement('div');score.className='weight-label';
+     score.innerHTML=`<span class="factor-value missing" id="score_${f.id}">—</span>`;
+     row.append(label,controls,score);holder.append(row);
  }
  return factors.length;
 }
@@ -363,10 +416,21 @@ function buildWeights(){
 function updateWeightShares(){
  if(!state.meta)return;
  const totals=stageWeightTotals(state.meta.factors,state.settings);
- for(const f of state.meta.factors){const el=$('pct_'+f.id);if(el){
-  const total=totals[currentStage(f,state.settings)];const raw=Math.max(0,Number(state.settings.weights[f.id]??5));
-  el.textContent=total?`${(100*raw/total).toFixed(1)}%`:'0%';
- }}
+ for(const stage of ['Baseline','Gap']){
+   const status=$(stage.toLowerCase()+'WeightStatus');
+   if(!status)continue;
+   const total=totals[stage];const diff=total-100;
+   status.classList.toggle('off-target',diff!==0);
+   status.innerHTML=`<span>${stage} total <strong>${total}%</strong></span><span class="total-status">${diff===0?'✓ Total = 100%':`⚠ ${formatDelta(diff)} point${Math.abs(diff)===1?'':'s'} from 100%`}</span>`;
+ }
+ for(const f of state.meta.factors){
+   const el=$('delta_'+f.id);if(!el)continue;
+   const delta=(state.settings.weights[f.id]??0)-(state.defaults[f.id]??0);
+   el.textContent=delta===0?'±0':formatDelta(delta);
+   el.classList.toggle('changed',delta!==0);
+   el.classList.toggle('positive',delta>0);
+   el.classList.toggle('negative',delta<0);
+ }
 }
 function activateTab(next){
  if(!['gap','baseline','combined'].includes(next))return;
@@ -401,8 +465,9 @@ async function fetchData(demo=false){
  state.demo=demo;state.meta=meta;state.data=geojson;state.selectedId=null;mappedDataset=null;
  await loadReferences(meta);
  const prior=loadScenarioFromHash();
- state.settings={weights:Object.fromEntries(meta.factors.map(f=>[f.id,5])),moveNeeds:false,moveCommunity:false,baselineShare:50};
- if(prior){for(const f of meta.factors)if(Number.isFinite(Number(prior.weights?.[f.id])))state.settings.weights[f.id]=Math.max(0,Math.min(10,Number(prior.weights[f.id])));
+ state.defaults=defaultWeights(meta.factors);
+ state.settings={weights:{...state.defaults},moveNeeds:false,moveCommunity:false,baselineShare:50};
+ if(prior){for(const f of meta.factors)if(prior.weights?.[f.id]!==undefined && Number.isFinite(Number(prior.weights[f.id])))state.settings.weights[f.id]=Math.max(0,Math.min(100,Math.round(Number(prior.weights[f.id]))));
    state.settings.moveNeeds=!!prior.moveNeeds;state.settings.moveCommunity=!!prior.moveCommunity;
    state.settings.baselineShare=Math.min(100,Math.max(0,Number(prior.baselineShare??50)));}
  $('moveNeeds').checked=state.settings.moveNeeds;$('moveCommunity').checked=state.settings.moveCommunity;
@@ -411,7 +476,7 @@ async function fetchData(demo=false){
  $('dataTag').textContent=demo?'SYNTHETIC DEMO':'EXPORT · '+(meta.cell_count||geojson.features.length).toLocaleString()+' cells';
  $('dataTag').style.background=demo?'#ffe8c9':'#e9f2f2';
  $('cellCount').textContent=`${geojson.features.length.toLocaleString()} cells`;
- $('dataNotes').textContent=`Export created ${meta.created_utc?new Date(meta.created_utc).toLocaleString():'unknown date'}. Housing shares are fractions (0–1), displayed as percentages. Original workbook targets are embedded in metadata. Scenario changes do not alter the underlying exported data.`;
+ $('dataNotes').textContent=`Factor weights default to the source workbook. Export created ${meta.created_utc?new Date(meta.created_utc).toLocaleString():'unknown date'}. Housing shares are fractions (0–1), displayed as percentages. Original workbook targets are embedded in metadata. Scenario changes do not alter the underlying exported data.`;
  $('bottomNote').textContent=demo?'SYNTHETIC DEMO — not Vancouver planning results':'100 m fixed grid · Browser-side scoring · Zero GIS recomputation';
  buildWeights();recompute();activateTab('combined');updateMap(true);
 }
@@ -426,7 +491,7 @@ function exportCSV(){if(!state.data)return;const rows=[['GRID_ID','BASELINE','GA
  const text=rows.map(r=>r.join(',')).join('\n');downloadBlob(new Blob([text],{type:'text/csv'}),'planning-opportunity-scenario.csv');}
 function resetStage(stage){
  if(!state.meta)return;
- for(const f of state.meta.factors)if(currentStage(f,state.settings)===stage)state.settings.weights[f.id]=5;
+ for(const f of state.meta.factors)if(currentStage(f,state.settings)===stage)state.settings.weights[f.id]=state.defaults[f.id]??0;
  buildWeights();recompute();
 }
 function setHandlers(){
@@ -452,7 +517,7 @@ function setHandlers(){
  $('moveNeeds').addEventListener('change',updateRoutes);$('moveCommunity').addEventListener('change',updateRoutes);
  $('split').addEventListener('input',()=>{state.settings.baselineShare=Number($('split').value);updateSplit();scheduleUpdate();});
  $('clearCell').addEventListener('click',()=>{state.selectedId=null;updateSelection();});
- $('resetWeights').addEventListener('click',()=>{for(const f of state.meta?.factors??[])state.settings.weights[f.id]=5;
+ $('resetWeights').addEventListener('click',()=>{for(const f of state.meta?.factors??[])state.settings.weights[f.id]=state.defaults[f.id]??0;
   state.settings.moveNeeds=false;state.settings.moveCommunity=false;state.settings.baselineShare=50;
   $('moveNeeds').checked=false;$('moveCommunity').checked=false;$('split').value=50;updateSplit();buildWeights();recompute();});
  $('copyScenario').addEventListener('click',async()=>{
