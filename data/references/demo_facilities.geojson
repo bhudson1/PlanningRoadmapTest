@@ -1,0 +1,31 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "WEB_LABEL": "Sample community centre"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -123.137,
+          49.255
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "WEB_LABEL": "Sample library"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -123.133,
+          49.258
+        ]
+      }
+    }
+  ]
+}

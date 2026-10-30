@@ -132,5 +132,31 @@
     "warnings": [
       "All demo scores and shares are fabricated."
     ]
-  }
+  },
+  "references": [
+    {
+      "id": "demo_facilities",
+      "name": "Sample facilities (synthetic)",
+      "color": "#295f8d",
+      "geometry_type": "point",
+      "source_label_field": "WEB_LABEL",
+      "label_field": "WEB_LABEL",
+      "file": "references/demo_facilities.geojson",
+      "feature_count": 2,
+      "visible": true,
+      "labels_visible": true
+    },
+    {
+      "id": "demo_boundaries",
+      "name": "Sample plan boundary (synthetic)",
+      "color": "#ac643d",
+      "geometry_type": "polygon",
+      "source_label_field": "WEB_LABEL",
+      "label_field": "WEB_LABEL",
+      "file": "references/demo_boundaries.geojson",
+      "feature_count": 1,
+      "visible": true,
+      "labels_visible": true
+    }
+  ]
 }

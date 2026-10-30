@@ -1,0 +1,38 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "WEB_LABEL": "Sample planning area"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -123.144,
+              49.254
+            ],
+            [
+              -123.136,
+              49.254
+            ],
+            [
+              -123.136,
+              49.259
+            ],
+            [
+              -123.144,
+              49.259
+            ],
+            [
+              -123.144,
+              49.254
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

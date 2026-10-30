@@ -4,16 +4,24 @@ const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
 const state={data:null,meta:null,selectedId:null,mode:'combined',mapLoaded:false,demo:false,
   settings:{weights:{},moveNeeds:false,moveCommunity:false,baselineShare:50}};
-// CARTO Positron light-gray map: muted streets underneath and readable place labels on top.
-// This is a simple raster basemap and requires no API key.
+// OSM Standard raster tiles, desaturated entirely in MapLibre paint.
+// No key, no CARTO dependency. Interactive viewport requests only, with attribution.
 const style={version:8,sources:{
-  gray:{type:'raster',tiles:['https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png'],tileSize:256,
-    attribution:'© OpenStreetMap contributors · © CARTO'},
-  labels:{type:'raster',tiles:['https://basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png'],tileSize:256,
-    attribution:'© OpenStreetMap contributors · © CARTO'}
-},layers:[{id:'gray-basemap',type:'raster',source:'gray',paint:{'raster-opacity':1}}]};
+  gray:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,
+    attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>'}
+},layers:[
+  {id:'neutral-background',type:'background',paint:{'background-color':'#e5e8e8'}},
+  {id:'gray-basemap',type:'raster',source:'gray',paint:{
+    'raster-opacity':.9,'raster-saturation':-1,'raster-contrast':-.18,
+    'raster-brightness-min':.14,'raster-brightness-max':.99}}
+]};
 let map;
 let mappedDataset=null;
+let references=[];
+const referenceVisibility={};
+const referenceLabels={};
+let labelFrame=0;
+
 const lowToHigh=['#cb4c47','#edb05b','#f1e69c','#99ce83','#26885c'];
 // MapLibre evaluates weights as a paint expression. The polygons and their
 // attributes are uploaded ONCE; adjusting weights never retransmits a 100m
@@ -70,20 +78,170 @@ function createMap(){
   map = new maplibregl.Map({container:'map',style,center:[-123.12,49.25],zoom:11.5,
     attributionControl:false,pitch:0,maxPitch:45});
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
-  map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-right');
+  map.addControl(new maplibregl.AttributionControl({compact:false}),'bottom-right');
   map.on('load',()=>{
     state.mapLoaded=true;
     map.addSource('cells',{type:'geojson',data:{type:'FeatureCollection',features:[]},generateId:false});
     map.addLayer({id:'scores',type:'fill',source:'cells',paint:{'fill-color':fillExpression(state.mode),'fill-opacity':.77}});
     map.addLayer({id:'boundaries',type:'line',source:'cells',minzoom:12,paint:{'line-color':'#304a52','line-opacity':.26,'line-width':.4}});
-    map.addLayer({id:'gray-place-labels',type:'raster',source:'labels',paint:{'raster-opacity':.92}});
     map.addLayer({id:'selection',type:'line',source:'cells',paint:{'line-color':'#102e3d','line-width':2.8,'line-opacity':1},filter:['==',['get','GRID_ID'],'__none__']});
     map.on('click','scores',e=>{if(e.features?.length){state.selectedId=e.features[0].properties.GRID_ID;updateSelection();}});
+    map.on('move',scheduleReferenceLabels);
+    map.on('resize',scheduleReferenceLabels);
     map.on('mouseenter','scores',()=>map.getCanvas().style.cursor='pointer');
     map.on('mouseleave','scores',()=>map.getCanvas().style.cursor='');
     if(state.data)updateMap(true);
+    renderReferenceLayers();
+    scheduleReferenceLabels();
   });
 }
+// Optional reference overlays are separate from scoring. Their visibility never
+// modifies factor values, stage weights, grid geometry or analysis summaries.
+function refLayerIds(id){return ['webref-fill-'+id,'webref-line-'+id,'webref-point-'+id];}
+function clearReferenceLayers(){
+ if(!map || !state.mapLoaded)return;
+ for(const old of references){
+  for(const lid of refLayerIds(old.id))if(map.getLayer(lid))map.removeLayer(lid);
+  if(map.getSource('webref-'+old.id))map.removeSource('webref-'+old.id);
+ }
+}
+function renderReferenceLayers(){
+ if(!state.mapLoaded)return;
+ for(const spec of references){
+  if(!spec.geojson)continue;
+  const sid='webref-'+spec.id;
+  if(!map.getSource(sid))map.addSource(sid,{type:'geojson',data:spec.geojson});
+  const visible=referenceVisibility[spec.id]?'visible':'none';
+  const c=spec.color||'#537d9b',g=String(spec.geometry_type||'').toLowerCase();
+  if(g==='polygon'){
+   if(!map.getLayer('webref-fill-'+spec.id))map.addLayer({id:'webref-fill-'+spec.id,type:'fill',source:sid,
+    layout:{visibility:visible},paint:{'fill-color':c,'fill-opacity':.12}});
+   if(!map.getLayer('webref-line-'+spec.id))map.addLayer({id:'webref-line-'+spec.id,type:'line',source:sid,
+    layout:{visibility:visible},paint:{'line-color':c,'line-width':1.7,'line-opacity':.94}});
+  }else if(g==='polyline'||g==='line'){
+   if(!map.getLayer('webref-line-'+spec.id))map.addLayer({id:'webref-line-'+spec.id,type:'line',source:sid,
+    layout:{visibility:visible},paint:{'line-color':c,'line-width':2.3,'line-opacity':.95}});
+  }else if(g==='point'||g==='multipoint'){
+   if(!map.getLayer('webref-point-'+spec.id))map.addLayer({id:'webref-point-'+spec.id,type:'circle',source:sid,
+    layout:{visibility:visible},paint:{'circle-color':c,'circle-radius':5,'circle-stroke-width':1.6,'circle-stroke-color':'#fff'}});
+  }
+ }
+ scheduleReferenceLabels();
+}
+function setReferenceVisibility(id){
+ if(state.mapLoaded){for(const lid of refLayerIds(id))if(map.getLayer(lid))
+  map.setLayoutProperty(lid,'visibility',referenceVisibility[id]?'visible':'none');}
+ scheduleReferenceLabels();
+}
+function referenceList(){
+ const el=$('referenceList');el.replaceChildren();
+ $('referenceCount').textContent=references.length?`${references.length} layers`:'No layers';
+ if(!references.length){const p=document.createElement('p');p.className='micro';p.textContent='Add optional reference layers in ArcGIS Pro Tool 5 to display boundaries, facilities, streets or places.';el.append(p);return;}
+ for(const ref of references){
+  const wrap=document.createElement('div');wrap.className='reference-row';
+  const top=document.createElement('label');top.className='reference-choice';
+  const check=document.createElement('input');check.type='checkbox';check.checked=!!referenceVisibility[ref.id];
+  check.setAttribute('aria-label','Show reference layer '+ref.name);
+  check.addEventListener('change',()=>{referenceVisibility[ref.id]=check.checked;setReferenceVisibility(ref.id);});
+  const swatch=document.createElement('span');swatch.className='reference-swatch';swatch.style.backgroundColor=ref.color||'#537d9b';
+  const name=document.createElement('strong');name.textContent=ref.name;
+  top.append(check,swatch,name);wrap.append(top);
+  const sub=document.createElement('label');sub.className='reference-label-choice';
+  const labelCheck=document.createElement('input');labelCheck.type='checkbox';
+  labelCheck.checked=!!referenceLabels[ref.id];labelCheck.disabled=!ref.source_label_field;
+  labelCheck.addEventListener('change',()=>{referenceLabels[ref.id]=labelCheck.checked;scheduleReferenceLabels();});
+  const span=document.createElement('span');span.textContent=ref.source_label_field?'Show labels · '+ref.source_label_field:'No label field selected';
+  sub.append(labelCheck,span);wrap.append(sub);
+  if(ref.error){const err=document.createElement('div');err.className='reference-error';err.textContent=ref.error;wrap.append(err);}
+  el.append(wrap);
+ }
+}
+function representativeCoordinate(geom){
+ if(!geom)return null;
+ const t=geom.type,c=geom.coordinates;
+ if(t==='Point')return c;
+ if(t==='MultiPoint')return c?.[0];
+ if(t==='LineString'||t==='MultiLineString'){
+  const line=t==='LineString'?c:c?.reduce((a,b)=>b.length>a.length?b:a,[]);
+  return line?.[Math.floor(line.length/2)]||null;
+ }
+ if(t==='Polygon'||t==='MultiPolygon'){
+  const rings=t==='Polygon'?[c?.[0]]:(c||[]).map(p=>p?.[0]);
+  const ring=(rings||[]).filter(Boolean).reduce((a,b)=>b.length>a.length?b:a,[]);
+  if(!ring.length)return null;
+  // Subtract an origin first to avoid floating-point cancellation with
+  // tiny polygons at longitude -123 / latitude 49.
+  const origin=ring[0];let area=0,cx=0,cy=0;
+  for(let i=0;i<ring.length;i++){
+   const a=[ring[i][0]-origin[0],ring[i][1]-origin[1]];
+   const next=ring[(i+1)%ring.length],b=[next[0]-origin[0],next[1]-origin[1]];
+   const cross=a[0]*b[1]-b[0]*a[1];
+   area+=cross;cx+=(a[0]+b[0])*cross;cy+=(a[1]+b[1])*cross;
+  }
+  if(Math.abs(area)>1e-16)return [origin[0]+cx/(3*area),origin[1]+cy/(3*area)];
+  return ring[Math.floor(ring.length/2)];
+ }
+ return null;
+}
+function scheduleReferenceLabels(){
+ if(labelFrame)return;
+ labelFrame=requestAnimationFrame(()=>{labelFrame=0;drawReferenceLabels();});
+}
+function drawReferenceLabels(){
+ const canvas=$('referenceLabelCanvas');
+ if(!canvas||!map||!state.mapLoaded)return;
+ const area=$('map-area'),width=area.clientWidth,height=area.clientHeight;
+ if(!width||!height)return;
+ const ratio=Math.min(window.devicePixelRatio||1,2);
+ if(canvas.width!==Math.round(width*ratio)||canvas.height!==Math.round(height*ratio)){
+  canvas.width=Math.round(width*ratio);canvas.height=Math.round(height*ratio);
+  canvas.style.width=width+'px';canvas.style.height=height+'px';
+ }
+ const ctx=canvas.getContext('2d');ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,width,height);
+ const zoom=map.getZoom();if(zoom<10)return;
+ ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='600 12px "Noto Sans",Arial,sans-serif';
+ ctx.lineJoin='round';ctx.lineWidth=3.5;ctx.strokeStyle='rgba(255,255,255,.94)';
+ const taken=[];let drawn=0;
+ for(const ref of references){
+  if(!referenceVisibility[ref.id]||!referenceLabels[ref.id]||!ref.geojson?.features)continue;
+  if((ref.geometry_type==='polyline'&&zoom<11)||(ref.geometry_type==='polygon'&&zoom<11))continue;
+  ctx.fillStyle=ref.color||'#35546a';
+  for(const f of ref.geojson.features){
+   if(drawn>=330)break;
+   const label=String(f.properties?.WEB_LABEL??'').trim();if(!label)continue;
+   const xy=representativeCoordinate(f.geometry);if(!xy)continue;
+   const screen=map.project(xy);const x=screen.x,y=screen.y;
+   if(x<25||y<25||x>width-25||y>height-25)continue;
+   const w=Math.min(ctx.measureText(label).width,260);
+   const box=[x-w/2-4,y-9,x+w/2+4,y+9];
+   if(taken.some(b=>!(box[2]<b[0]||box[0]>b[2]||box[3]<b[1]||box[1]>b[3])))continue;
+   taken.push(box);ctx.strokeText(label,x,y,260);ctx.fillText(label,x,y,260);drawn++;
+  }
+ }
+}
+async function loadReferences(meta){
+ clearReferenceLayers();references=[];
+ for(const id of Object.keys(referenceVisibility))delete referenceVisibility[id];
+ for(const id of Object.keys(referenceLabels))delete referenceLabels[id];
+ for(const ref of meta.references||[]){
+  // A generated export always uses a local data/references/*.geojson path.
+  if(!/^references\/[a-z0-9_]+\.geojson$/.test(ref.file||''))continue;
+  const record={...ref,geojson:null,error:null};
+  try{
+   const resp=await fetch('data/'+ref.file);
+   if(!resp.ok)throw new Error('HTTP '+resp.status);
+   const data=await resp.json();
+   if(data.type!=='FeatureCollection'||!Array.isArray(data.features))throw new Error('Invalid GeoJSON');
+   record.geojson=data;
+  }catch(err){record.error='Could not load reference GeoJSON ('+err.message+')';}
+  if(record.geojson){referenceVisibility[record.id]=ref.visible!==false;
+    referenceLabels[record.id]=!!ref.labels_visible;}
+  references.push(record);
+ }
+ // Keep unavailable rows visible with an error; never add a bad GeoJSON source.
+ referenceList();renderReferenceLayers();
+}
+
 function makeBounds(fc){const bounds=new maplibregl.LngLatBounds();let found=false;
  function walk(arr){if(typeof arr?.[0]==='number'){bounds.extend(arr);found=true;}else if(Array.isArray(arr)){for(const a of arr)walk(a);}}
  for(const f of fc.features)walk(f.geometry.coordinates);
@@ -241,6 +399,7 @@ async function fetchData(demo=false){
  if(!Array.isArray(meta.factors)||!Array.isArray(geojson.features)||!geojson.features.length)throw new Error('Invalid or empty model data');
  for(const f of meta.factors){if(!f.id||!f.stage||!f.name)throw new Error('Incomplete factor metadata');}
  state.demo=demo;state.meta=meta;state.data=geojson;state.selectedId=null;mappedDataset=null;
+ await loadReferences(meta);
  const prior=loadScenarioFromHash();
  state.settings={weights:Object.fromEntries(meta.factors.map(f=>[f.id,5])),moveNeeds:false,moveCommunity:false,baselineShare:50};
  if(prior){for(const f of meta.factors)if(Number.isFinite(Number(prior.weights?.[f.id])))state.settings.weights[f.id]=Math.max(0,Math.min(10,Number(prior.weights[f.id])));
@@ -274,6 +433,10 @@ function setHandlers(){
  $('demoBtn').addEventListener('click',()=>fetchData(true).catch(e=>setError(e.message)));
  $('retryBtn').addEventListener('click',()=>fetchData(false).catch(e=>setError(e.message)));
  $('resetView').addEventListener('click',()=>updateMap(true));
+ $('basemapChoice').addEventListener('change',()=>{
+  if(state.mapLoaded)map.setLayoutProperty('gray-basemap','visibility',
+    $('basemapChoice').value==='plain'?'none':'visible');
+ });
  for(const tab of ['gap','baseline','combined']){
   const name=tab[0].toUpperCase()+tab.slice(1);$('tab'+name).addEventListener('click',()=>activateTab(tab));
   $('tab'+name).addEventListener('keydown',e=>{

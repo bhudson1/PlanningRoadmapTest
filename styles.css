@@ -40,3 +40,18 @@
 .formula{font-size:13px;font-weight:800;text-align:center;color:#2d666d;margin:17px 0}
 .map-context{background:#fffffff5;border:1px solid #dce1df;border-radius:7px;box-shadow:0 4px 10px #15292b18;padding:11px 13px;font-weight:900;font-size:11px;letter-spacing:.08em;color:#40535d}
 @media(max-width:700px){.analysis-tabs{padding:6px 9px;gap:5px}.analysis-tab{min-height:61px;padding:9px 4px}.analysis-tab span{font-size:11px}.analysis-tab small{font-size:9px}.weight-header,.factor-row{grid-template-columns:minmax(0,1fr) 108px 71px;column-gap:6px}.split-ends{font-size:9px}}
+
+/* Optional ArcGIS Pro reference overlays and labels. Canvas needs no glyph API. */
+#referenceLabelCanvas{position:absolute;inset:0;z-index:2;pointer-events:none}
+.reference-panel{margin:12px 17px 8px;padding:12px 13px;border:1px solid #dee8e8;background:#f9fcfc;border-radius:8px}
+.reference-panel>summary{font-size:11px;font-weight:850;letter-spacing:.045em;color:#334d59;cursor:pointer;display:flex;align-items:center;justify-content:space-between}
+.reference-panel>summary small{font-size:10px;color:#71848a;letter-spacing:0;font-weight:600}
+.reference-row{padding:10px 0 7px;border-bottom:1px solid #e7eded}.reference-row:last-child{border-bottom:0}
+.reference-choice{display:flex;align-items:center;gap:9px;font-size:12px;color:#294552;cursor:pointer}
+.reference-choice strong{font-weight:720;overflow-wrap:anywhere}
+.reference-swatch{width:12px;height:12px;flex:0 0 12px;border-radius:3px;box-shadow:0 0 0 1px #1233}
+.reference-label-choice{margin:6px 0 0 25px;display:flex;align-items:center;gap:8px;font-size:10px;color:#607984;cursor:pointer}
+.reference-choice input,.reference-label-choice input{accent-color:#3c7184}
+.reference-error{color:#9a3d39;font-size:10px;margin:4px 0 0 26px}
+
+.basemap-switch{display:inline-flex;align-items:center;gap:6px}.basemap-switch select{max-width:112px}

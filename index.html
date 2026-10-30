@@ -8,12 +8,14 @@
 <div id="shell">
   <main id="map-area" aria-label="Interactive planning opportunity map">
     <div id="map"></div>
+    <canvas id="referenceLabelCanvas" aria-hidden="true"></canvas>
     <header class="brand">
       <div class="brand-symbol" aria-hidden="true">▤</div>
       <div><div class="eyebrow">AREA PLANNING ROADMAP</div><div class="brand-name">Planning Opportunity <span>Explorer</span></div></div>
       <div id="dataTag" class="data-tag">No data loaded</div>
     </header>
     <div class="top-tools">
+      <label class="toolbar-field basemap-switch">Basemap <select id="basemapChoice" aria-label="Basemap style"><option value="streets">Grey streets</option><option value="plain">Plain grey</option></select></label>
       <div class="map-context" id="mapContext">COMBINED SCORE</div>
       <button id="resetView" class="button-quiet" title="Zoom to all study-area cells">⌖ <span>Extent</span></button>
     </div>
@@ -30,6 +32,10 @@
     </nav>
     <div class="metrics"><div><small>Baseline</small><strong id="metricBase">—</strong></div><div><small>Gap</small><strong id="metricGap">—</strong></div><div><small>Combined</small><strong id="metricCombined">—</strong></div></div>
     <div class="sidebar-scroll">
+      <details class="reference-panel" open>
+        <summary>MAP REFERENCE LAYERS <small id="referenceCount">No layers</small></summary>
+        <div id="referenceList"></div>
+      </details>
       <section id="panelGap" class="tab-panel weight-section" role="tabpanel" aria-labelledby="tabGap" hidden>
         <div class="section-row"><h2>Housing diversity gap</h2><button id="resetGap" class="button-inline">Reset weights</button></div>
         <p class="hint">Adjust the four housing inputs independently. Weights automatically normalize to 100% within Gap. All four begin at equal influence.</p>
