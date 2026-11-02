@@ -80,3 +80,28 @@
 .weight-total.off-target strong{color:#924b16}
 .weight-label{justify-content:flex-end}
 @media(max-width:700px){.weight-header,.factor-row{grid-template-columns:minmax(0,1fr) 124px 36px;column-gap:7px}.weight-total{padding:8px 9px}.weight-total .total-status{font-size:10px}}
+
+
+/* v0.4.64 — map update progress. Visible while scores are processed and
+   stays present with a completion timestamp after MapLibre reports idle. */
+.map-update-status{position:absolute;z-index:5;top:108px;left:22px;width:min(268px,calc(100% - 40px));display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fff;border:1px solid #d2e1df;border-radius:10px;box-shadow:0 8px 27px #1737442a;color:#1b5361;font-size:12px;pointer-events:none;transition:border-color .2s,background .2s}
+.map-update-status[hidden]{display:none}
+.map-update-status[data-phase="busy"]{border-color:#8daeb0}
+.map-update-status[data-phase="done"]{background:#f6fbf8;border-color:#b8dccb;color:#235b48}
+.update-status-icon{width:18px;height:18px;flex:none;border-radius:50%;border:3px solid #bad7d8;border-top-color:#2a7581;animation:map-update-spin .8s linear infinite}
+[data-phase="done"] .update-status-icon{border:0;background:#287c61;animation:none;position:relative}
+[data-phase="done"] .update-status-icon::after{content:'✓';color:#fff;font-weight:900;font-size:12px;position:absolute;inset:0;display:grid;place-items:center}
+@keyframes map-update-spin{to{transform:rotate(360deg)}}
+.update-status-body{min-width:0;flex:1}
+.update-status-body strong{display:block;line-height:1.4}
+.update-progress-track{height:4px;margin-top:7px;background:#e1eded;border-radius:5px;overflow:hidden}
+.update-progress-track>span{display:block;height:100%;border-radius:5px;background:#328d91;transition:width .17s ease}
+.update-progress-track>span.indeterminate{animation:map-progress-move 1s ease-in-out infinite alternate}
+[data-phase="done"] .update-progress-track>span{background:#49a184}
+@keyframes map-progress-move{from{transform:translateX(-55%)}to{transform:translateX(190%)}}
+.sidebar-update-status{background:#eef4f5;padding:8px 22px;font-size:11px;font-weight:750;color:#326578;border-bottom:1px solid #d8e5e6;min-height:34px}
+.sidebar-update-status[data-phase="done"]{background:#eff9f3;color:#246448}
+#exportScenario:disabled{opacity:.48;cursor:wait}
+@media(max-width:1020px){.map-update-status{top:151px;left:13px}}
+@media(max-width:700px){.map-update-status{top:107px;left:7px;width:min(235px,calc(100% - 14px));padding:8px 10px;font-size:11px}.sidebar-update-status{padding:6px 16px;font-size:10px}}
+@media(prefers-reduced-motion:reduce){.update-status-icon,.update-progress-track>span.indeterminate{animation:none}}

@@ -19,18 +19,23 @@
       <div class="map-context" id="mapContext">COMBINED SCORE</div>
       <button id="resetView" class="button-quiet" title="Zoom to all study-area cells">⌖ <span>Extent</span></button>
     </div>
+    <div id="mapUpdateStatus" class="map-update-status" data-phase="busy" role="status" aria-live="polite" aria-atomic="true" aria-busy="true" hidden>
+      <span class="update-status-icon" aria-hidden="true"></span>
+      <div class="update-status-body"><strong id="updateStatusText">Updating map…</strong><div class="update-progress-track" aria-hidden="true"><span id="updateProgressBar" class="indeterminate"></span></div></div>
+    </div>
     <div id="loading" class="empty-panel" role="status"><div class="empty-icon">▦</div><h2>Connect your 100 m analysis</h2><p>Run the new ArcGIS Pro export tool, then place its <code>grid.geojson</code> and <code>meta.json</code> in this site's <code>data</code> folder.</p><div class="empty-actions"><button id="demoBtn" class="button-primary">Preview with synthetic data</button><button id="retryBtn" class="button-light">Try loading exported data</button></div><p class="fine">The demo is synthetic and is not an assessment of Vancouver.</p></div>
     <div id="legend" class="legend" hidden></div>
     <div id="bottomNote" class="map-footnote">Spreadsheet-default weights · Select Gap, Baseline or Combined to change the map.</div>
   </main>
   <aside id="sidebar">
-    <div class="sidebar-head"><div class="eyebrow">INTERACTIVE SCENARIO MODEL</div><h1>Explore planning opportunities</h1><p>Choose an analysis, adjust its weights in percentage points, and see the 100 m grid update immediately.</p></div>
+    <div class="sidebar-head"><div class="eyebrow">INTERACTIVE SCENARIO MODEL</div><h1>Explore planning opportunities</h1><p>Choose an analysis, adjust its weights in percentage points, and see the 100 m grid update with a progress indicator.</p></div>
     <nav class="analysis-tabs" role="tablist" aria-label="Analysis mode">
       <button id="tabGap" class="analysis-tab" role="tab" aria-controls="panelGap" aria-selected="false" tabindex="-1" data-tab="gap"><span>GAP</span><small>Housing diversity</small></button>
       <button id="tabBaseline" class="analysis-tab" role="tab" aria-controls="panelBaseline" aria-selected="false" tabindex="-1" data-tab="baseline"><span>BASELINE</span><small>Growth readiness</small></button>
       <button id="tabCombined" class="analysis-tab active" role="tab" aria-controls="panelCombined" aria-selected="true" tabindex="0" data-tab="combined"><span>COMBINED</span><small>Gap + Baseline</small></button>
     </nav>
     <div class="metrics"><div><small>Baseline</small><strong id="metricBase">—</strong></div><div><small>Gap</small><strong id="metricGap">—</strong></div><div><small>Combined</small><strong id="metricCombined">—</strong></div></div>
+    <div id="sidebarUpdateStatus" class="sidebar-update-status" role="status" aria-live="polite" aria-atomic="true">Load data to begin</div>
     <div class="sidebar-scroll">
       <details class="reference-panel" open>
         <summary>MAP REFERENCE LAYERS <small id="referenceCount">No layers</small></summary>

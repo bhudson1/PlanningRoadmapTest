@@ -34,3 +34,27 @@ For existing v0.4.58 exports, no ArcGIS rerun is needed: copy the new web-app fi
 ## Weight defaults (v0.4.63)
 
 The ArcGIS exporter has always emitted workbook factors in spreadsheet row order and stored `original_weight_pct` in each metadata factor. This update uses those source values rather than 5-point equal defaults. The controls use whole percentage points, show ± changes relative to that default, and flag stage totals other than 100%. For legacy exported metadata without weights, zero is shown rather than inventing workbook values; rerun Tool 5 against the companion workbook for accurate defaults. The map applies the weighted mean even during an unbalanced edit so interactive exploration remains responsive. The sample demo carries synthetic scores and workbook-aligned defaults but is not an actual planning analysis.
+
+
+# Planning Opportunity Explorer v0.4.64 — recalculation feedback and responsiveness
+
+Based on the complete v0.4.63 workbook-weight edition.
+
+## What's new in the website
+
+- **Status shown immediately** after editing any Baseline or Gap weight, moving amenity factors, shifting the Combined share or switching views. Status appears both over the map and below the metric strip.
+- **Real progress** for the JavaScript cell-score recalculation, including a percentage, followed by **Rendering updated map…** until MapLibre confirms it has rendered the new colours (a completed render if the GeoJSON source is loaded; otherwise an idle event).
+- After successful rendering a persistent green **Map updated · N.N s** confirmation. When basemap tiles stall the indicator remains busy and explains why; it doesn't falsely claim map completion.
+- Edits are **debounced 170 ms** so several quick arrow clicks cause one recalculation and one style update. Older, in-progress calculations are invalidated by a new revision number.
+- Large recalculations yield back to the browser in ~11 ms chunks so the progress indicator stays responsive.
+- When changing only the Combined split, the code recalculates the blended score from cached Baseline/Gap values rather than re-evaluating every factor in every cell.
+- Exporting scenario scores is temporarily disabled during ongoing recalculations to avoid exporting stale scores.
+- Reset view no longer recompiles a large score paint expression unnecessarily.
+
+The 22 Baseline factors, spreadsheet defaults, 100% flags, arrows, signed default deltas, Gap weights, Combined controls, references, and all model definitions from v0.4.63 are retained. No GIS analysis or workbook values changed.
+
+## Updating GitHub Pages
+
+Upload **app.js, index.html, styles.css** from the standalone web archive and overwrite those same three files in the root of your website. Leave `model.mjs`, `data/grid.geojson`, `data/meta.json`, reference layers, and your GitHub Pages configuration alone. Hard refresh the browser after deployment (Ctrl+Shift+R). The earlier v0.4.62/v0.4.63 `data/` exports still work.
+
+To replace the whole ArcGIS Pro toolbox instead, use the full toolbox archive. Its underlying ArcGIS Python exporter remains v0.4.63 since only web UI code changed. Demo data remains synthetic. Syntax and preservation were verified; live MapLibre rendering on the actual published Vancouver dataset has not been benchmarked.

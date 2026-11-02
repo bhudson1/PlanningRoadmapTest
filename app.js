@@ -90,7 +90,7 @@ function createMap(){
     map.on('resize',scheduleReferenceLabels);
     map.on('mouseenter','scores',()=>map.getCanvas().style.cursor='pointer');
     map.on('mouseleave','scores',()=>map.getCanvas().style.cursor='');
-    if(state.data)updateMap(true);
+    if(state.data)updateMap(true,scoresCalculated?updateRevision:null);
     renderReferenceLayers();
     scheduleReferenceLabels();
   });
@@ -247,32 +247,126 @@ function makeBounds(fc){const bounds=new maplibregl.LngLatBounds();let found=fal
  for(const f of fc.features)walk(f.geometry.coordinates);
  return found?bounds:null;
 }
-let updatePending=false;
-function scheduleUpdate(){
- if(updatePending)return;
- updatePending=true;
- requestAnimationFrame(()=>{updatePending=false;recompute();});
+// Incremental recalculation lets the browser display a genuine progress indicator
+// and accept more edits while processing a large citywide GeoJSON file.
+// The revision token discards obsolete calculations and obsolete map-idle events.
+let updateRevision=0, updateTimer=0, revisionStartedAt=0;
+let needsFullScores=true, needsCombinedScore=true, scoresCalculated=false;
+let pendingFit=false, cachedBounds=null, mapRenderTimeout=0;
+function setUpdateStatus(phase,message,percent=null){
+ const pill=$('mapUpdateStatus'),copy=$('sidebarUpdateStatus'),label=$('updateStatusText');
+ if(!pill || !label)return;
+ const busy=phase==='busy';
+ pill.hidden=false;
+ pill.dataset.phase=phase;
+ pill.setAttribute('aria-busy',String(busy));
+ label.textContent=message;
+ if(copy){copy.textContent=message;copy.dataset.phase=phase;}
+ const bar=$('updateProgressBar');
+ if(bar){bar.classList.toggle('indeterminate',busy&&percent===null);
+   bar.style.width=percent===null?(busy?'35%':'100%'):`${Math.max(0,Math.min(100,percent))}%`;}
+ const exportBtn=$('exportScenario');if(exportBtn)exportBtn.disabled=busy;
 }
-function recompute(){
- if(!state.data || !state.meta)return;
- const factors=state.meta.factors;const settings=state.settings;
- for(const feature of state.data.features){
-   const p=feature.properties;const result=computeScores(p,factors,settings);
-   p.__base=result.baseline;p.__gap=result.gap;p.__combined=result.combined;p.__biv=result.biv;
+function scheduleUpdate(kind='full',immediate=false){
+ if(!state.data||!state.meta)return;
+ if(kind==='full')needsFullScores=true;
+ if(kind==='full'||kind==='blend')needsCombinedScore=true;
+ const revision=++updateRevision;
+ revisionStartedAt=performance.now();
+ clearTimeout(updateTimer);clearTimeout(mapRenderTimeout);
+ setUpdateStatus('busy','Updating map…',null);
+ // Wait briefly to combine consecutive arrow clicks or drag events.
+ // The indicator is set synchronously, before expensive scoring starts.
+ updateTimer=setTimeout(()=>calculateRevision(revision),immediate?0:170);
+}
+function calculateRevision(revision){
+ if(revision!==updateRevision||!state.data||!state.meta)return;
+ const full=needsFullScores,blend=needsCombinedScore;
+ if(!full&&!blend){finishCalculation(revision);return;}
+ const features=state.data.features;
+ const factors=state.meta.factors;
+ // Snapshot the scenario: a change mid-calculation cancels this run.
+ const settings={...state.settings,weights:{...state.settings.weights}};
+ const share=Math.max(0,Math.min(1,Number(settings.baselineShare)/100));
+ let i=0,shown=-1;
+ function chunk(){
+  if(revision!==updateRevision)return;
+  const until=performance.now()+11;
+  while(i<features.length && performance.now()<until){
+   const p=features[i++].properties;
+   if(full){
+    const r=computeScores(p,factors,settings);
+    p.__base=r.baseline;p.__gap=r.gap;p.__combined=r.combined;p.__biv=r.biv;
+   }else{
+    // Changing only the Combined balance does not need 26 factor evaluations.
+    const b=p.__base,g=p.__gap;
+    p.__combined=share===1?b:share===0?g:(b!==null&&g!==null?b*share+g*(1-share):null);
+   }
+  }
+  if(revision!==updateRevision)return;
+  const progress=features.length?Math.round(i*100/features.length):100;
+  const decade=Math.floor(progress/10);
+  if(decade!==shown){shown=decade;setUpdateStatus('busy',`Calculating scores… ${progress}%`,progress);}
+  if(i<features.length){requestAnimationFrame(chunk);return;}
+  if(full)needsFullScores=false;
+  needsCombinedScore=false;
+  scoresCalculated=true;
+  finishCalculation(revision);
  }
- updateMap(false);
+ requestAnimationFrame(chunk);
+}
+function finishCalculation(revision){
+ if(revision!==updateRevision)return;
  updateSelection();
  updateWeightShares();
+ setUpdateStatus('busy',state.mapLoaded?'Rendering updated map…':'Waiting for map to load…',null);
+ if(state.mapLoaded)updateMap(false,revision);
+}
+function mapReady(revision){
+ if(revision!==updateRevision)return;
+ clearTimeout(mapRenderTimeout);
+ const seconds=(Math.max(0,performance.now()-revisionStartedAt)/1000).toFixed(1);
+ setUpdateStatus('done',`✓ Map updated · ${seconds} s`,100);
+}
+// Wait for MapLibre idle, not just for setPaintProperty to return: that would
+// incorrectly report completion while the renderer is still busy.
+function awaitMapRender(revision){
+ if(revision!==updateRevision)return;
+ const onIdle=()=>{if(revision===updateRevision)mapReady(revision);};
+ map.once('idle',onIdle);
+ // Once the grid source is loaded, MapLibre's next completed render confirms
+ // the new score colours are displayed. Otherwise wait for the source to load.
+ // Don't unnecessarily wait for unrelated slow basemap tiles to go idle.
+ if(map.isSourceLoaded?.('cells'))map.once('render',()=>{
+  requestAnimationFrame(()=>{if(revision===updateRevision)mapReady(revision);});
+ });
+ map.triggerRepaint();
+ // If base tiles keep loading, report that separately rather than claiming
+ // that every tile has finished loading.
+ mapRenderTimeout=setTimeout(()=>{
+  if(revision===updateRevision && $('mapUpdateStatus').dataset.phase==='busy')
+   setUpdateStatus('busy','Map rendering… waiting for tiles',null);
+ },7500);
 }
 let throttleHandle=0;
-function updateMap(zoom=false){
- if(!state.data || !state.mapLoaded)return;
+function updateMap(zoom=false,revision=null){
+ if(!state.data)return;
+ pendingFit=pendingFit||zoom;
+ if(!state.mapLoaded)return;
  clearTimeout(throttleHandle);
  throttleHandle=setTimeout(()=>{
+  if(revision!==null && revision!==updateRevision)return;
   const source=map.getSource('cells');
-  if(source && mappedDataset!==state.data){source.setData(state.data);mappedDataset=state.data;}
-  map.setPaintProperty('scores','fill-color',fillExpression(state.mode));
-  if(zoom){const bounds=makeBounds(state.data);if(bounds)map.fitBounds(bounds,{padding:65,duration:650,maxZoom:14});}
+  const uploading=!!source && mappedDataset!==state.data;
+  if(uploading){source.setData(state.data);mappedDataset=state.data;}
+  // Extent-only actions don't need to rebuild an expensive map expression.
+  if(revision!==null||uploading)map.setPaintProperty('scores','fill-color',fillExpression(state.mode));
+  if(pendingFit){
+   if(!cachedBounds)cachedBounds=makeBounds(state.data);
+   if(cachedBounds)map.fitBounds(cachedBounds,{padding:65,duration:650,maxZoom:14});
+   pendingFit=false;
+  }
+  if(revision!==null)awaitMapRender(revision);
  },40);
 }
 function selFeature(){return state.data?.features.find(f=>f.properties.GRID_ID===state.selectedId)||null;}
@@ -361,7 +455,7 @@ function setWeight(f,raw){
  state.settings.weights[f.id]=Math.max(0,Math.min(100,Math.round(n)));
  const input=$('weight_'+f.id);if(input)input.value=state.settings.weights[f.id];
  updateWeightShares();
- scheduleUpdate();
+ scheduleUpdate('full');
 }
 function addFactorRows(holder,stage){
  const factors=state.meta.factors.filter(f=>currentStage(f,state.settings)===stage);
@@ -443,7 +537,7 @@ function activateTab(next){
  }
  $('mapContext').textContent=next==='baseline'?'BASELINE SCORE':next==='gap'?'HOUSING GAP SCORE':'COMBINED SCORE';
  legend();
- if(state.mapLoaded)map.setPaintProperty('scores','fill-color',fillExpression(state.mode));
+ if(state.data)scheduleUpdate('paint');
 }
 function legend(){
  const el=$('legend');el.hidden=!state.data;
@@ -462,7 +556,7 @@ async function fetchData(demo=false){
  const [meta,geojson]=await Promise.all(responses.map(r=>r.json()));
  if(!Array.isArray(meta.factors)||!Array.isArray(geojson.features)||!geojson.features.length)throw new Error('Invalid or empty model data');
  for(const f of meta.factors){if(!f.id||!f.stage||!f.name)throw new Error('Incomplete factor metadata');}
- state.demo=demo;state.meta=meta;state.data=geojson;state.selectedId=null;mappedDataset=null;
+ state.demo=demo;state.meta=meta;state.data=geojson;state.selectedId=null;mappedDataset=null;cachedBounds=null;scoresCalculated=false;needsFullScores=true;needsCombinedScore=true;
  await loadReferences(meta);
  const prior=loadScenarioFromHash();
  state.defaults=defaultWeights(meta.factors);
@@ -478,11 +572,11 @@ async function fetchData(demo=false){
  $('cellCount').textContent=`${geojson.features.length.toLocaleString()} cells`;
  $('dataNotes').textContent=`Factor weights default to the source workbook. Export created ${meta.created_utc?new Date(meta.created_utc).toLocaleString():'unknown date'}. Housing shares are fractions (0–1), displayed as percentages. Original workbook targets are embedded in metadata. Scenario changes do not alter the underlying exported data.`;
  $('bottomNote').textContent=demo?'SYNTHETIC DEMO — not Vancouver planning results':'100 m fixed grid · Browser-side scoring · Zero GIS recomputation';
- buildWeights();recompute();activateTab('combined');updateMap(true);
+ buildWeights();activateTab('combined');scheduleUpdate('full',true);updateMap(true);
 }
 function updateSplit(){const b=Number($('split').value);$('splitBase').textContent=b+'%';$('splitGap').textContent=(100-b)+'%';$('combinedFormula').textContent=`Combined = ${b}% Baseline + ${100-b}% Gap`;}
 function loadScenarioFromHash(){try{if(location.hash.startsWith('#scenario='))return JSON.parse(decodeURIComponent(location.hash.slice(10)));}catch(e){}return null;}
-function updateRoutes(){state.settings.moveNeeds=$('moveNeeds').checked;state.settings.moveCommunity=$('moveCommunity').checked;buildWeights();recompute();}
+function updateRoutes(){state.settings.moveNeeds=$('moveNeeds').checked;state.settings.moveCommunity=$('moveCommunity').checked;buildWeights();scheduleUpdate('full');}
 function setError(message){$('loading').hidden=false;$('loading').querySelector('h2').textContent='Load planning data';
  const p=$('loading').querySelector('p');if(p)p.innerHTML=`${escapeHTML(message)}. Export <code>grid.geojson</code> and <code>meta.json</code> from the ArcGIS tool into the site’s <code>data/</code> folder.`;}
 function downloadBlob(blob,name){const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
@@ -492,7 +586,7 @@ function exportCSV(){if(!state.data)return;const rows=[['GRID_ID','BASELINE','GA
 function resetStage(stage){
  if(!state.meta)return;
  for(const f of state.meta.factors)if(currentStage(f,state.settings)===stage)state.settings.weights[f.id]=state.defaults[f.id]??0;
- buildWeights();recompute();
+ buildWeights();scheduleUpdate('full');
 }
 function setHandlers(){
  $('demoBtn').addEventListener('click',()=>fetchData(true).catch(e=>setError(e.message)));
@@ -513,13 +607,13 @@ function setHandlers(){
  }
  $('resetBaseline').addEventListener('click',()=>resetStage('Baseline'));
  $('resetGap').addEventListener('click',()=>resetStage('Gap'));
- $('resetCombined').addEventListener('click',()=>{$('split').value=50;state.settings.baselineShare=50;updateSplit();scheduleUpdate();});
+ $('resetCombined').addEventListener('click',()=>{$('split').value=50;state.settings.baselineShare=50;updateSplit();scheduleUpdate('blend');});
  $('moveNeeds').addEventListener('change',updateRoutes);$('moveCommunity').addEventListener('change',updateRoutes);
- $('split').addEventListener('input',()=>{state.settings.baselineShare=Number($('split').value);updateSplit();scheduleUpdate();});
+ $('split').addEventListener('input',()=>{state.settings.baselineShare=Number($('split').value);updateSplit();scheduleUpdate('blend');});
  $('clearCell').addEventListener('click',()=>{state.selectedId=null;updateSelection();});
  $('resetWeights').addEventListener('click',()=>{for(const f of state.meta?.factors??[])state.settings.weights[f.id]=state.defaults[f.id]??0;
   state.settings.moveNeeds=false;state.settings.moveCommunity=false;state.settings.baselineShare=50;
-  $('moveNeeds').checked=false;$('moveCommunity').checked=false;$('split').value=50;updateSplit();buildWeights();recompute();});
+  $('moveNeeds').checked=false;$('moveCommunity').checked=false;$('split').value=50;updateSplit();buildWeights();scheduleUpdate('full');});
  $('copyScenario').addEventListener('click',async()=>{
   if(!state.data)return;
   const url=location.href.split('#')[0]+'#scenario='+encodeURIComponent(JSON.stringify(state.settings));
