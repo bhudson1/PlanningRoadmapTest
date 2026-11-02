@@ -1,0 +1,146 @@
+// TEMPORARY Gap popup for v0.4.50 — no pipeline totals / optional project-count fields
+// For current output polygons before Prepare captures PIPE_DWELLINGS and PIPE_PROJECTS.
+// Weights omitted because the workbook values have changed since the packaged example.
+// Use in the popup Text element as {expression/expression1}.
+// Left = 1 (red), center = 3 (yellow), right = 5 (green).
+
+function ValidScore(raw) {
+    if (IsEmpty(raw)) { return null; }
+    var n = Number(raw);
+    if (n < 1 || n > 5) { return null; }
+    return n;
+}
+function ScoreColor(raw) {
+    var v = ValidScore(raw);
+    if (IsEmpty(v)) { return "#777777"; }
+    if (v < 1.5) { return "#D73027"; }
+    if (v < 2.5) { return "#F46D43"; }
+    if (v < 3.5) { return "#B58B00"; }
+    if (v < 4.5) { return "#66A84F"; }
+    return "#1A9850";
+}
+function ScoreText(raw) {
+    var v = ValidScore(raw);
+    if (IsEmpty(v)) { return "No data"; }
+    return Text(v, "0.00");
+}
+function ScoreScale(raw) {
+    var v = ValidScore(raw);
+    if (IsEmpty(v)) {
+        return "<div style='font-size:12px;color:#888;padding:4px 0;'>No score at this location</div>";
+    }
+    var h = "";
+    var position = ((v - 1) / 4) * 100;
+    if (v <= 1) {
+        h += "<table width='100%' cellpadding='0' cellspacing='0'><tr><td align='left' style='font-size:22px;line-height:18px;color:#1B1B1B;padding:0;'>▼</td></tr></table>";
+    } else if (v >= 5) {
+        h += "<table width='100%' cellpadding='0' cellspacing='0'><tr><td align='right' style='font-size:22px;line-height:18px;color:#1B1B1B;padding:0;'>▼</td></tr></table>";
+    } else {
+        var markerWidth = 2;
+        var leftWidth = position - markerWidth / 2;
+        var rightWidth = 100 - leftWidth - markerWidth;
+        h += "<table width='100%' cellpadding='0' cellspacing='0' style='table-layout:fixed;border-collapse:collapse;'><tr>" +
+             "<td width='" + leftWidth + "%'></td>" +
+             "<td width='" + markerWidth + "%' align='center' style='font-size:22px;line-height:18px;color:#1B1B1B;padding:0;'>▼</td>" +
+             "<td width='" + rightWidth + "%'></td></tr></table>";
+    }
+    var colors = [
+        "#D73027", "#D73027", "#DC3D2D", "#E34A33", "#E85B3D",
+        "#F46D43", "#F98E52", "#FDAE61", "#FDC775", "#FEE08B",
+        "#F4E88B", "#E2EC8B", "#D0E889", "#B8DD7A", "#9BD46A",
+        "#7BCB63", "#66BD63", "#4DAF5B", "#35A354", "#249B51", "#1A9850"
+    ];
+    h += "<table width='100%' cellpadding='0' cellspacing='0' style='table-layout:fixed;border-collapse:collapse;'><tr>";
+    for (var j = 0; j < Count(colors); j++) {
+        h += "<td align='center' style='font-size:19px;font-weight:bold;line-height:12px;color:" +
+             colors[j] + ";padding:0;'>■</td>";
+    }
+    h += "</tr></table>";
+    h += "<table width='100%' cellpadding='0' cellspacing='0'><tr>" +
+         "<td width='33%' align='left' style='font-size:12px;color:#D73027;'>1</td>" +
+         "<td width='34%' align='center' style='font-size:12px;color:#927E00;'>3</td>" +
+         "<td width='33%' align='right' style='font-size:12px;color:#1A9850;'>5</td>" +
+         "</tr></table>";
+    return h;
+}
+function NativeText(raw) {
+    if (IsEmpty(raw)) { return "Source value unavailable"; }
+    return Text(Number(raw), "#,##0.##");
+}
+function PercentText(raw) {
+    if (IsEmpty(raw)) { return "No data"; }
+    var share = Number(raw);
+    if (share < 0 || share > 1.000001) { return "Invalid share"; }
+    return Text(Round(share * 100, 1)) + "%";
+}
+function ScoreCard(label, raw, weightText, compact) {
+    var fontSize = IIf(compact, "13px", "16px");
+    var heading = IIf(compact, "normal", "bold");
+    // No separator belongs inside a card: it previously appeared above
+    // its own More info control, visually linking the control to the NEXT card.
+    var h = "<div style='margin:6px 0 3px;'>";
+    h += "<table width='100%' cellpadding='0' cellspacing='0'><tr>" +
+         "<td width='78%' valign='middle' style='font-size:" + fontSize +
+         ";font-weight:" + heading + ";color:#242424;'>" + label + "</td>" +
+         "<td width='22%' valign='middle' align='right' style='font-size:16px;font-weight:bold;color:" +
+         ScoreColor(raw) + ";'>" + ScoreText(raw) + "</td></tr></table>";
+    h += ScoreScale(raw);
+    if (!IsEmpty(weightText)) {
+        h += "<div style='font-size:12px;color:#666;margin-top:4px;'>Weight: " + weightText + "</div>";
+    }
+    return h + "</div>";
+}
+var html = "<div style='font-family:Arial,Segoe UI,sans-serif;color:#262626;font-size:14px;'>";
+html += "<div style='font-size:19px;font-weight:bold;margin-bottom:9px;'>Planning Opportunity Profile</div>";
+
+html += ScoreCard("Gap opportunity score", $feature["GAP_SCORE"], "", false);
+if (Number($feature["GAP_STRETCHED"]) == 1) { html += "<div style='font-size:13px;color:#52636C;margin:4px 0 8px;'>" + "Relative score (observed study area 1\u20135). Original weighted score: " + ScoreText($feature["GAP_RAW_SCORE"]) + " / 5</div>"; }
+html += "<div style='border-bottom:1px solid #CBD2D6;margin:9px 0 12px;'></div>";
+html += "<div style='font-size:13px;color:#425B68;margin:2px 0 10px;'>" + "Housing-type target match (5 = closest): " + ScoreText($feature["GAP_DIVERSITY"]) + " / 5. Overall Gap opportunity combines housing-type need with tenure diversification need (higher tenure score = more ownership-dominated).</div>";
+html += "<div style='font-size:17px;font-weight:bold;margin-top:14px;margin-bottom:12px;'>" + "Gap categories" + "</div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Pipeline Housing Types", $feature["C02_Pipeline_Housing_Types"], "", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += "<div style='font-size:12px;color:#365467;margin-bottom:9px;'>" + "Type targets low/medium/high: 15% / 25% / 60%. Higher score = greater departure from target." + "</div>";
+html += ScoreCard("Pipeline housing-type mix gap", $feature["F02_Pipeline_housing_type_mix_gap"], "", true);
+html += "<div style='font-size:13px;margin:5px 0;color:#36556A;'>";
+html += "Low density: " + PercentText($feature["MIX_PL_LOW"]) + " &nbsp; ";
+html += "Medium density: " + PercentText($feature["MIX_PL_MID"]) + " &nbsp; ";
+html += "High density: " + PercentText($feature["MIX_PL_HIGH"]) + " &nbsp; ";
+html += "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Existing Housing Types", $feature["C01_Existing_Housing_Types"], "", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += "<div style='font-size:12px;color:#365467;margin-bottom:9px;'>" + "Type targets low/medium/high: 15% / 25% / 60%. Higher score = greater departure from target." + "</div>";
+html += ScoreCard("Existing housing-type mix gap", $feature["F01_Existing_housing_type_mix_gap"], "", true);
+html += "<div style='font-size:13px;margin:5px 0;color:#36556A;'>";
+html += "Low density: " + PercentText($feature["MIX_EX_LOW"]) + " &nbsp; ";
+html += "Medium density: " + PercentText($feature["MIX_EX_MID"]) + " &nbsp; ";
+html += "High density: " + PercentText($feature["MIX_EX_HIGH"]) + " &nbsp; ";
+html += "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Pipeline Housing Tenures", $feature["C04_Pipeline_Housing_Tenures"], "", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += "<div style='font-size:12px;color:#365467;margin-bottom:9px;'>" + "Tenure threshold index: 5 = no rental/BMR/NMH; 4 = rental > 0%; 3 = some BMR or NMH; 2 = BMR > 30% or NMH > 10%; 1 = rental >= 99.9% with BMR >= 20% and NMH >= 10%, or BMR > 30% AND NMH > 10%. Shares overlap." + "</div>";
+html += ScoreCard("Pipeline tenure diversification gap", $feature["F04_Pipeline_tenure_priority_score"], "", true);
+html += "<div style='font-size:13px;margin:5px 0;color:#36556A;'>";
+html += "Rental: " + PercentText($feature["MIX_PL_RENT"]) + " &nbsp; ";
+html += "Below-market rental: " + PercentText($feature["MIX_PL_BMR"]) + " &nbsp; ";
+html += "Non-market housing: " + PercentText($feature["MIX_PL_NMH"]) + " &nbsp; ";
+html += "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Existing Housing Tenures", $feature["C03_Existing_Housing_Tenures"], "", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += "<div style='font-size:12px;color:#365467;margin-bottom:9px;'>" + "Tenure threshold index: 5 = no rental/BMR/NMH; 4 = rental > 0%; 3 = some BMR or NMH; 2 = BMR > 30% or NMH > 10%; 1 = rental >= 99.9% with BMR >= 20% and NMH >= 10%, or BMR > 30% AND NMH > 10%. Shares overlap." + "</div>";
+html += ScoreCard("Existing tenure diversification gap", $feature["F03_Existing_tenure_priority_score"], "", true);
+html += "<div style='font-size:13px;margin:5px 0;color:#36556A;'>";
+html += "Rental: " + PercentText($feature["MIX_EX_RENT"]) + " &nbsp; ";
+html += "Below-market rental: " + PercentText($feature["MIX_EX_BMR"]) + " &nbsp; ";
+html += "Non-market housing: " + PercentText($feature["MIX_EX_NMH"]) + " &nbsp; ";
+html += "</div>";
+html += "</div></details></div>";
+html += "</div>";
+return html;

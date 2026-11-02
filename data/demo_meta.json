@@ -1,5 +1,5 @@
 {
-  "version": "DEMO",
+  "version": "1.1-synthetic",
   "created_utc": "2026-10-26T22:15:37.254383+00:00",
   "grid_size_m": 100,
   "cell_count": 120,
@@ -8,105 +8,239 @@
     {
       "id": "F001",
       "stage": "Baseline",
-      "category": "Infrastructure",
-      "name": "Fire Flow",
-      "description": "Synthetic sample value \u2014 for interface preview only",
-      "native_field": "V001",
+      "category": "Environmental",
+      "name": "Environmental Risks - Flood Hazard Risk",
+      "description": "Synthetic sample value — for interface preview only",
       "movable": false,
-      "original_weight_pct": 0
+      "original_weight_pct": 2
     },
     {
       "id": "F002",
       "stage": "Baseline",
-      "category": "Schools",
-      "name": "Elementary School Capacity",
-      "description": "Synthetic sample value \u2014 for interface preview only",
-      "native_field": "V002",
+      "category": "Infrastructure",
+      "name": "Sewer Capacity",
+      "description": "Synthetic sample value — for interface preview only",
       "movable": false,
-      "original_weight_pct": 0
+      "original_weight_pct": 3
     },
     {
       "id": "F003",
       "stage": "Baseline",
-      "category": "Transportation",
-      "name": "Access to Transit",
-      "description": "Synthetic sample value \u2014 for interface preview only",
-      "native_field": "V003",
+      "category": "Infrastructure",
+      "name": "Fire Flow",
+      "description": "Synthetic sample value — for interface preview only",
       "movable": false,
-      "original_weight_pct": 0
+      "original_weight_pct": 10
     },
     {
       "id": "F004",
       "stage": "Baseline",
-      "category": "Daily Needs",
-      "name": "Access to Grocery Stores & Bakeries",
-      "description": "Synthetic sample value \u2014 for interface preview only",
-      "native_field": null,
-      "movable": true,
-      "original_weight_pct": 0
+      "category": "Census",
+      "name": "Population Change",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 4
     },
     {
       "id": "F005",
       "stage": "Baseline",
-      "category": "Daily Needs",
-      "name": "Access to Health Services",
-      "description": "Synthetic sample value \u2014 for interface preview only",
-      "native_field": null,
-      "movable": true,
-      "original_weight_pct": 0
+      "category": "Environmental",
+      "name": "Environmental Risks - Seismic Risk",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 2
     },
     {
       "id": "F006",
       "stage": "Baseline",
-      "category": "Community Spaces",
-      "name": "Access to Community Spaces",
-      "description": "Synthetic sample value \u2014 for interface preview only",
-      "native_field": null,
-      "movable": true,
-      "original_weight_pct": 0
+      "category": "Environmental",
+      "name": "Environmental Risks - Soil Liquefaction Risk",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 2
     },
     {
       "id": "F007",
-      "stage": "Gap",
-      "category": "Existing Housing Types",
-      "name": "Existing housing-type mix gap",
-      "description": "Synthetic sample value \u2014 for interface preview only",
-      "native_field": null,
+      "stage": "Baseline",
+      "category": "Environmental",
+      "name": "Environmental Protections - Groundwater Areas of Concern",
+      "description": "Synthetic sample value — for interface preview only",
       "movable": false,
-      "original_weight_pct": 0
+      "original_weight_pct": 1
     },
     {
       "id": "F008",
-      "stage": "Gap",
-      "category": "Pipeline Housing Types",
-      "name": "Pipeline housing-type mix gap",
-      "description": "Synthetic sample value \u2014 for interface preview only",
-      "native_field": null,
+      "stage": "Baseline",
+      "category": "Environmental",
+      "name": "Environmental Protections - Environmentally Sensitive Areas",
+      "description": "Synthetic sample value — for interface preview only",
       "movable": false,
-      "original_weight_pct": 0
+      "original_weight_pct": 1
     },
     {
       "id": "F009",
-      "stage": "Gap",
-      "category": "Existing Housing Tenures",
-      "name": "Existing tenure priority score",
-      "description": "Synthetic sample value \u2014 for interface preview only",
-      "native_field": null,
+      "stage": "Baseline",
+      "category": "Schools",
+      "name": "Access to Elementary Schools",
+      "description": "Synthetic sample value — for interface preview only",
       "movable": false,
-      "original_weight_pct": 0
+      "original_weight_pct": 3
     },
     {
       "id": "F010",
+      "stage": "Baseline",
+      "category": "Schools",
+      "name": "Elementary School Capacity",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 6
+    },
+    {
+      "id": "F011",
+      "stage": "Baseline",
+      "category": "Schools",
+      "name": "Secondary School Capacity",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 6
+    },
+    {
+      "id": "F012",
+      "stage": "Baseline",
+      "category": "Childcare",
+      "name": "Childcare Needs Met Ages 0-5",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 4
+    },
+    {
+      "id": "F013",
+      "stage": "Baseline",
+      "category": "Childcare",
+      "name": "Childcare Needs Met Ages 5-12",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 4
+    },
+    {
+      "id": "F014",
+      "stage": "Baseline",
+      "category": "Childcare",
+      "name": "Access to Childcare Facilities",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 2
+    },
+    {
+      "id": "F015",
+      "stage": "Baseline",
+      "category": "Transportation",
+      "name": "Access to Transit",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 10
+    },
+    {
+      "id": "F016",
+      "stage": "Baseline",
+      "category": "Parks",
+      "name": "Access to Parks",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 10
+    },
+    {
+      "id": "F017",
+      "stage": "Baseline",
+      "category": "Community Spaces",
+      "name": "Access to Community Spaces",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": true,
+      "original_weight_pct": 10
+    },
+    {
+      "id": "F018",
+      "stage": "Baseline",
+      "category": "Daily Needs",
+      "name": "Access to Restaurants & Cafes",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": true,
+      "original_weight_pct": 2
+    },
+    {
+      "id": "F019",
+      "stage": "Baseline",
+      "category": "Daily Needs",
+      "name": "Access to Grocery Stores & Bakeries",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": true,
+      "original_weight_pct": 7
+    },
+    {
+      "id": "F020",
+      "stage": "Baseline",
+      "category": "Daily Needs",
+      "name": "Access to Health Services",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": true,
+      "original_weight_pct": 3
+    },
+    {
+      "id": "F021",
+      "stage": "Baseline",
+      "category": "Commercial Uses",
+      "name": "Existing Retail Areas",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 6
+    },
+    {
+      "id": "F022",
+      "stage": "Baseline",
+      "category": "Employment",
+      "name": "Areas to Prioritize Intensification",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 2
+    },
+    {
+      "id": "F023",
+      "stage": "Gap",
+      "category": "Existing Housing Types",
+      "name": "Existing housing-type mix gap",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 25
+    },
+    {
+      "id": "F024",
+      "stage": "Gap",
+      "category": "Pipeline Housing Types",
+      "name": "Pipeline housing-type mix gap",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 25
+    },
+    {
+      "id": "F025",
+      "stage": "Gap",
+      "category": "Existing Housing Tenures",
+      "name": "Existing tenure priority score",
+      "description": "Synthetic sample value — for interface preview only",
+      "movable": false,
+      "original_weight_pct": 25
+    },
+    {
+      "id": "F026",
       "stage": "Gap",
       "category": "Pipeline Housing Tenures",
       "name": "Pipeline tenure priority score",
-      "description": "Synthetic sample value \u2014 for interface preview only",
-      "native_field": null,
+      "description": "Synthetic sample value — for interface preview only",
       "movable": false,
-      "original_weight_pct": 0
+      "original_weight_pct": 25
     }
   ],
-  "study": "SYTHETIC DEMO \u2014 not real city data",
+  "study": "Synthetic grid for interface preview only — baseline defaults match the companion workbook",
   "housing": {
     "targets": {
       "Existing Housing Types": {

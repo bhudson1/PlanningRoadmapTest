@@ -1,0 +1,225 @@
+// v0.4.51 Planning Opportunity polygon popup (Arcade Popup / String)
+// Use in the popup Text element as {expression/expression1}.
+// Left = 1 (red), center = 3 (yellow), right = 5 (green).
+
+function ValidScore(raw) {
+    if (IsEmpty(raw)) { return null; }
+    var n = Number(raw);
+    if (n < 1 || n > 5) { return null; }
+    return n;
+}
+function ScoreColor(raw) {
+    var v = ValidScore(raw);
+    if (IsEmpty(v)) { return "#777777"; }
+    if (v < 1.5) { return "#D73027"; }
+    if (v < 2.5) { return "#F46D43"; }
+    if (v < 3.5) { return "#B58B00"; }
+    if (v < 4.5) { return "#66A84F"; }
+    return "#1A9850";
+}
+function ScoreText(raw) {
+    var v = ValidScore(raw);
+    if (IsEmpty(v)) { return "No data"; }
+    return Text(v, "0.00");
+}
+function ScoreScale(raw) {
+    var v = ValidScore(raw);
+    if (IsEmpty(v)) {
+        return "<div style='font-size:12px;color:#888;padding:4px 0;'>No score at this location</div>";
+    }
+    var h = "";
+    var position = ((v - 1) / 4) * 100;
+    if (v <= 1) {
+        h += "<table width='100%' cellpadding='0' cellspacing='0'><tr><td align='left' style='font-size:22px;line-height:18px;color:#1B1B1B;padding:0;'>▼</td></tr></table>";
+    } else if (v >= 5) {
+        h += "<table width='100%' cellpadding='0' cellspacing='0'><tr><td align='right' style='font-size:22px;line-height:18px;color:#1B1B1B;padding:0;'>▼</td></tr></table>";
+    } else {
+        var markerWidth = 2;
+        var leftWidth = position - markerWidth / 2;
+        var rightWidth = 100 - leftWidth - markerWidth;
+        h += "<table width='100%' cellpadding='0' cellspacing='0' style='table-layout:fixed;border-collapse:collapse;'><tr>" +
+             "<td width='" + leftWidth + "%'></td>" +
+             "<td width='" + markerWidth + "%' align='center' style='font-size:22px;line-height:18px;color:#1B1B1B;padding:0;'>▼</td>" +
+             "<td width='" + rightWidth + "%'></td></tr></table>";
+    }
+    var colors = [
+        "#D73027", "#D73027", "#DC3D2D", "#E34A33", "#E85B3D",
+        "#F46D43", "#F98E52", "#FDAE61", "#FDC775", "#FEE08B",
+        "#F4E88B", "#E2EC8B", "#D0E889", "#B8DD7A", "#9BD46A",
+        "#7BCB63", "#66BD63", "#4DAF5B", "#35A354", "#249B51", "#1A9850"
+    ];
+    h += "<table width='100%' cellpadding='0' cellspacing='0' style='table-layout:fixed;border-collapse:collapse;'><tr>";
+    for (var j = 0; j < Count(colors); j++) {
+        h += "<td align='center' style='font-size:19px;font-weight:bold;line-height:12px;color:" +
+             colors[j] + ";padding:0;'>■</td>";
+    }
+    h += "</tr></table>";
+    h += "<table width='100%' cellpadding='0' cellspacing='0'><tr>" +
+         "<td width='33%' align='left' style='font-size:12px;color:#D73027;'>1</td>" +
+         "<td width='34%' align='center' style='font-size:12px;color:#927E00;'>3</td>" +
+         "<td width='33%' align='right' style='font-size:12px;color:#1A9850;'>5</td>" +
+         "</tr></table>";
+    return h;
+}
+function NativeText(raw) {
+    if (IsEmpty(raw)) { return "Source value unavailable"; }
+    return Text(Number(raw), "#,##0.##");
+}
+function PercentText(raw) {
+    if (IsEmpty(raw)) { return "No data"; }
+    return Text(Number(raw) * 100, "#,##0.0") + "%";
+}
+function ScoreCard(label, raw, weightText, compact) {
+    var fontSize = IIf(compact, "13px", "16px");
+    var heading = IIf(compact, "normal", "bold");
+    // No separator belongs inside a card: it previously appeared above
+    // its own More info control, visually linking the control to the NEXT card.
+    var h = "<div style='margin:6px 0 3px;'>";
+    h += "<table width='100%' cellpadding='0' cellspacing='0'><tr>" +
+         "<td width='78%' valign='middle' style='font-size:" + fontSize +
+         ";font-weight:" + heading + ";color:#242424;'>" + label + "</td>" +
+         "<td width='22%' valign='middle' align='right' style='font-size:16px;font-weight:bold;color:" +
+         ScoreColor(raw) + ";'>" + ScoreText(raw) + "</td></tr></table>";
+    h += ScoreScale(raw);
+    if (!IsEmpty(weightText)) {
+        h += "<div style='font-size:12px;color:#666;margin-top:4px;'>Weight: " + weightText + "</div>";
+    }
+    return h + "</div>";
+}
+var html = "<div style='font-family:Arial,Segoe UI,sans-serif;color:#262626;font-size:14px;'>";
+html += "<div style='font-size:19px;font-weight:bold;margin-bottom:9px;'>Planning Opportunity Profile</div>";
+
+html += ScoreCard("Baseline score", $feature["BASE_SCORE"], "", false);
+if (Number($feature["BASE_STRETCHED"]) == 1) { html += "<div style='font-size:13px;color:#52636C;margin:4px 0 8px;'>" + "Relative score (observed study area 1\u20135). Original weighted score: " + ScoreText($feature["BASE_RAW_SCORE"]) + " / 5</div>"; }
+html += "<div style='border-bottom:1px solid #CBD2D6;margin:9px 0 12px;'></div>";
+html += "<div style='font-size:17px;font-weight:bold;margin-top:14px;margin-bottom:12px;'>" + "Baseline categories" + "</div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Schools", $feature["C04_Schools"], "15", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 3 contributing factors</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Elementary School Capacity", $feature["F09_Elementary_School_Capacity"], "6", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Elementary school utilization: " + NativeText($feature["V09_Elementary_School_Capacity"]) + "%." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Elementary school capacity or utilization." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "VSB" + "</div>";
+html += ScoreCard("Secondary School Capacity", $feature["F10_Secondary_School_Capacity"], "6", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Secondary school utilization: " + NativeText($feature["V10_Secondary_School_Capacity"]) + "%." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Secondary school capacity or utilization." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "VSB" + "</div>";
+html += ScoreCard("Access to Elementary Schools", $feature["F08_Access_to_Elementary_Schools"], "3", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "There are " + NativeText($feature["V08_Access_to_Elementary_Schools"]) + " elementary schools within a 10-minute walk." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Number of elementary schools within a 10-minute walk." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Jim/TPL" + "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Daily Needs", $feature["C09_Daily_Needs"], "12", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 3 contributing factors</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Access to Grocery Stores & Bakeries", $feature["F18_Access_to_Grocery_Stores_Bakeries"], "7", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "There are " + NativeText($feature["V18_Access_to_Grocery_Stores_Bakeries"]) + " grocery stores and bakeries within a 10-minute walk." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Number of grocery stores and bakeries within a 10-minute walk." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Jim/TPL" + "</div>";
+html += ScoreCard("Access to Health Services", $feature["F19_Access_to_Health_Services"], "3", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "There are " + NativeText($feature["V19_Access_to_Health_Services"]) + " health services within a 10-minute walk." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Number of health services within a 10-minute walk." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Jim/TPL" + "</div>";
+html += ScoreCard("Access to Restaurants & Cafes", $feature["F17_Access_to_Restaurants_Cafes"], "2", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "There are " + NativeText($feature["V17_Access_to_Restaurants_Cafes"]) + " restaurants and cafés within a 10-minute walk." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Number of restaurants and cafés within a 10-minute walk." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Jim/TPL" + "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Community Spaces", $feature["C08_Community_Spaces"], "11", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Access to Community Spaces", $feature["F16_Access_to_Community_Spaces"], "11", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "There are " + NativeText($feature["V16_Access_to_Community_Spaces"]) + " community spaces within a 10-minute walk." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Number of community spaces within a 10-minute walk." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Jim/TPL" + "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Parks", $feature["C07_Parks"], "11", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Access to Parks", $feature["F15_Access_to_Parks"], "11", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Accessible parkland: " + NativeText($feature["V15_Access_to_Parks"]) + " ha per 1,000 residents." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Park accessibility in hectares per 1,000 residents." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Portal" + "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Transportation", $feature["C06_Transportation"], "11", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Access to Transit", $feature["F14_Access_to_Transit"], "11", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Transit access source value: " + NativeText($feature["V14_Access_to_Transit"]) + "." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Walking-distance access to rapid transit and Frequent Transit Network services." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Jim/TPL" + "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Childcare", $feature["C05_Childcare"], "10", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 3 contributing factors</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Childcare Needs Met Ages 0-5", $feature["F11_Childcare_Needs_Met_Ages_0_5"], "4", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Childcare needs met (ages 0–5): " + NativeText($feature["V11_Childcare_Needs_Met_Ages_0_5"]) + "%." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Percentage of childcare need met for ages 0–5." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "ACCS" + "</div>";
+html += ScoreCard("Childcare Needs Met Ages 5-12", $feature["F12_Childcare_Needs_Met_Ages_5_12"], "4", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Childcare needs met (ages 5–12): " + NativeText($feature["V12_Childcare_Needs_Met_Ages_5_12"]) + "%." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Percentage of childcare need met for ages 5–12." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "ACCS" + "</div>";
+html += ScoreCard("Access to Childcare Facilities", $feature["F13_Access_to_Childcare_Facilities"], "2", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "There are " + NativeText($feature["V13_Access_to_Childcare_Facilities"]) + " childcare facilities (37+ spaces) within a 10-minute walk." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Number of childcare facilities with at least 37 spaces within a 10-minute walk." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Jim/TPL" + "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Infrastructure", $feature["C02_Infrastructure"], "10", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Fire Flow", $feature["F02_Fire_Flow"], "10", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Original fire-flow indicator: " + NativeText($feature["V02_Fire_Flow"]) + "." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Identifies areas with fire-flow concerns." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Samuel/Water" + "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Environmental", $feature["C01_Environmental"], "8", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 5 contributing factors</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Environmental Risks - Flood Hazard Risk", $feature["F01_Environmental_Risks_Flood_Hazard_Risk"], "2", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Flood hazard source classification: " + NativeText($feature["V01_Environmental_Risks_Flood_Hazard_Risk"]) + "." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Designated floodplains and potential overland flooding in extreme rainfall." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "ODP team" + "</div>";
+html += ScoreCard("Environmental Risks - Seismic Risk", $feature["F04_Environmental_Risks_Seismic_Risk"], "2", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Seismic risk category: " + NativeText($feature["V04_Environmental_Risks_Seismic_Risk"]) + "." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Identifies seismic risk by census tract." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "https://council.vancouver.ca/20241112/documents/r1.pdf" + "</div>";
+html += ScoreCard("Environmental Risks - Soil Liquefaction Risk", $feature["F05_Environmental_Risks_Soil_Liquefaction_Risk"], "2", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Liquefaction risk indicator: " + NativeText($feature["V05_Environmental_Risks_Soil_Liquefaction_Risk"]) + "." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Identifies soil liquefaction risk." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Portal" + "</div>";
+html += ScoreCard("Environmental Protections - Environmentally Sensitive Areas", $feature["F07_Environmental_Protections_Environmentally_Sensiti_299f19"], "1", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Environmental sensitivity indicator: " + NativeText($feature["V07_Environmental_Protections_Environmentally_Sensiti_939ead"]) + "." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Identifies areas of environmental protection concern." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Portal" + "</div>";
+html += ScoreCard("Environmental Protections - Groundwater Areas of Concern", $feature["F06_Environmental_Protections_Groundwater_Areas_of_Concern"], "1", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Groundwater concern indicator: " + NativeText($feature["V06_Environmental_Protections_Groundwater_Areas_of_Concern"]) + "." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Identifies groundwater areas of concern." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Portal" + "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Commercial Uses", $feature["C10_Commercial_Uses"], "6", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Existing Retail Areas", $feature["F20_Existing_Retail_Areas"], "6", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Existing retail source value: " + NativeText($feature["V20_Existing_Retail_Areas"]) + "." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Existing retail areas, including storefronts and applicable zoning." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Portal" + "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Census", $feature["C03_Census"], "4", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Population Change", $feature["F03_Population_Change"], "4", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Population change (2011–2021): " + NativeText($feature["V03_Population_Change"]) + "%." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Population change from 2011 to 2021 by census tract." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "Census data" + "</div>";
+html += "</div></details></div>";
+html += "<div style='padding:6px 0 10px;border-bottom:1px solid #D9DFE2;'>";
+html += ScoreCard("Employment", $feature["C11_Employment"], "2", false);
+html += "<details style='margin:7px 0 0;padding:8px 10px;background:#E0E7EB;border:1px solid #B8C7D0;border-radius:4px;'><summary style='color:#31546C;font-size:13px;font-weight:bold;cursor:pointer;'>More info · 1 contributing factor</summary><div style='padding:8px 0 2px;'>";
+html += ScoreCard("Areas to Prioritize Intensification", $feature["F21_Areas_to_Prioritize_Intensification"], "2", true);
+html += "<div style='font-size:13px;color:#354C59;margin:2px 0 7px;'>" + "Employment intensification priority indicator: " + NativeText($feature["V21_Areas_to_Prioritize_Intensification"]) + "." + "</div>";
+html += "<div style='font-size:12px;color:#53656D;line-height:1.4;margin:2px 0 5px;'>" + "Areas prioritized for employment intensification." + "</div>";
+html += "<div style='font-size:11px;color:#6B7981;margin-bottom:5px;'>Source: " + "ODP team" + "</div>";
+html += "</div></details></div>";
+html += "</div>";
+return html;
