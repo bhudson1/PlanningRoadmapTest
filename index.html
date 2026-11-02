@@ -16,53 +16,68 @@
     </header>
     <div class="top-tools">
       <label class="toolbar-field basemap-switch">Basemap <select id="basemapChoice" aria-label="Basemap style"><option value="streets">Grey streets</option><option value="plain">Plain grey</option></select></label>
-      <div class="map-context" id="mapContext">COMBINED SCORE</div>
+      <div class="map-context" id="mapContext">BASELINE SCORE</div>
       <button id="resetView" class="button-quiet" title="Zoom to all study-area cells">⌖ <span>Extent</span></button>
     </div>
     <div id="mapUpdateStatus" class="map-update-status" data-phase="busy" role="status" aria-live="polite" aria-atomic="true" aria-busy="true" hidden>
       <span class="update-status-icon" aria-hidden="true"></span>
       <div class="update-status-body"><strong id="updateStatusText">Updating map…</strong><div class="update-progress-track" aria-hidden="true"><span id="updateProgressBar" class="indeterminate"></span></div></div>
     </div>
-    <div id="loading" class="empty-panel" role="status"><div class="empty-icon">▦</div><h2>Connect your 100 m analysis</h2><p>Run the new ArcGIS Pro export tool, then place its <code>grid.geojson</code> and <code>meta.json</code> in this site's <code>data</code> folder.</p><div class="empty-actions"><button id="demoBtn" class="button-primary">Preview with synthetic data</button><button id="retryBtn" class="button-light">Try loading exported data</button></div><p class="fine">The demo is synthetic and is not an assessment of Vancouver.</p></div>
+    <div id="loading" class="empty-panel" role="status"><div class="empty-icon">▦</div><h2>Connect your exported analysis</h2><p>Run the new ArcGIS Pro export tool, then place its <code>grid.geojson</code> and <code>meta.json</code> in this site's <code>data</code> folder.</p><div class="empty-actions"><button id="demoBtn" class="button-primary">Preview with synthetic data</button><button id="retryBtn" class="button-light">Try loading exported data</button></div><p class="fine">The demo is synthetic and is not an assessment of Vancouver.</p></div>
     <div id="legend" class="legend" hidden></div>
-    <div id="bottomNote" class="map-footnote">Spreadsheet-default weights · Select Gap, Baseline or Combined to change the map.</div>
+    <div id="bottomNote" class="map-footnote">Spreadsheet-default weights · Explore Baseline → Gap → Combined to build a scenario.</div>
   </main>
   <aside id="sidebar">
-    <div class="sidebar-head"><div class="eyebrow">INTERACTIVE SCENARIO MODEL</div><h1>Explore planning opportunities</h1><p>Choose an analysis, adjust its weights in percentage points, and see the 100 m grid update with a progress indicator.</p></div>
+    <div class="sidebar-head"><div class="eyebrow">INTERACTIVE SCENARIO MODEL</div><h1>Explore planning opportunities</h1><p>Start with existing conditions (Baseline), explore gaps, then combine the two. Click a grid cell to see colour-coded factor scores next to their adjustable weights.</p></div>
     <nav class="analysis-tabs" role="tablist" aria-label="Analysis mode">
-      <button id="tabGap" class="analysis-tab" role="tab" aria-controls="panelGap" aria-selected="false" tabindex="-1" data-tab="gap"><span>GAP</span><small>Housing diversity</small></button>
-      <button id="tabBaseline" class="analysis-tab" role="tab" aria-controls="panelBaseline" aria-selected="false" tabindex="-1" data-tab="baseline"><span>BASELINE</span><small>Growth readiness</small></button>
-      <button id="tabCombined" class="analysis-tab active" role="tab" aria-controls="panelCombined" aria-selected="true" tabindex="0" data-tab="combined"><span>COMBINED</span><small>Gap + Baseline</small></button>
+      <button id="tabBaseline" class="analysis-tab active" role="tab" aria-controls="panelBaseline" aria-selected="true" tabindex="0" data-tab="baseline"><span>1 · BASELINE</span><small>Existing readiness</small></button>
+      <button id="tabGap" class="analysis-tab" role="tab" aria-controls="panelGap" aria-selected="false" tabindex="-1" data-tab="gap"><span>2 · GAP</span><small>Unmet needs</small></button>
+      <button id="tabCombined" class="analysis-tab" role="tab" aria-controls="panelCombined" aria-selected="false" tabindex="-1" data-tab="combined"><span>3 · COMBINED</span><small>Bring it together</small></button>
     </nav>
+    <div class="routing-panel">
+      <div class="routing-heading"><strong>Where should amenities count?</strong><span>Scenario options</span></div>
+      <p class="micro">Keep amenities in Baseline (existing readiness), or move them into Gap (need for future delivery). Their integer weights remain editable in whichever tab they appear.</p>
+      <label class="switch-line"><span><strong>Daily Needs → Gap</strong><small>Restaurants, groceries, health services</small></span><input id="moveNeeds" type="checkbox" role="switch"></label>
+      <label class="switch-line"><span><strong>Community Spaces → Gap</strong><small>Community centres and spaces</small></span><input id="moveCommunity" type="checkbox" role="switch"></label>
+    </div>
     <div class="metrics"><div><small>Baseline</small><strong id="metricBase">—</strong></div><div><small>Gap</small><strong id="metricGap">—</strong></div><div><small>Combined</small><strong id="metricCombined">—</strong></div></div>
     <div id="sidebarUpdateStatus" class="sidebar-update-status" role="status" aria-live="polite" aria-atomic="true">Load data to begin</div>
     <div class="sidebar-scroll">
       <details class="reference-panel" open>
         <summary>MAP REFERENCE LAYERS <small id="referenceCount">No layers</small></summary>
-        <div id="referenceList"></div>
+        <p class="micro" id="basemapLabelNote" aria-live="polite">Basemap street and place labels display above the analysis grid. Custom road labels are off by default.</p>
+      <div id="referenceList"></div>
+      </details>
+      <details id="openDataPanel" class="portal-panel open-data-panel">
+        <summary>ADD VANCOUVER OPEN DATA <small>Public · No login</small></summary>
+        <p class="micro">Search the <a href="https://opendata.vancouver.ca/pages/home/" target="_blank" rel="noopener noreferrer">City of Vancouver Open Data Portal</a> and add public spatial datasets to the map as reference overlays. They do not change the analysis scores.</p>
+        <label class="portal-field" for="openDataSearchText">Find spatial datasets
+          <input id="openDataSearchText" type="search" placeholder="e.g. parks, schools, zoning, streets" autocomplete="off">
+        </label>
+        <div class="portal-actions"><button id="openDataSearch" type="button" class="button-light">Search datasets</button><small id="openDataCount" class="open-data-count"></small></div>
+        <div id="openDataStatus" class="open-data-status" role="status" aria-live="polite">Public data requires no sign-in or application registration.</div>
+        <div id="openDataResults" class="portal-results" aria-label="Public dataset search results"></div>
+        <div id="openDataAddedList" class="portal-added-list"></div>
+        <p class="micro">Loads map features within your current view (up to 2,000 per dataset). Zoom in and choose <b>Reload extent</b> to retrieve a smaller area. The basemap labels stay above these overlays. Datasets without map geometry are excluded.</p>
       </details>
       <section id="panelGap" class="tab-panel weight-section" role="tabpanel" aria-labelledby="tabGap" hidden>
-        <div class="section-row"><h2>Housing diversity gap</h2><button id="resetGap" class="button-inline">Reset weights</button></div>
+        <div class="section-row"><h2>Housing and amenity gaps</h2><button id="resetGap" class="button-inline">Reset weights</button></div>
         <p class="hint">Adjust weights in 1% steps, in spreadsheet order. Defaults come from the input workbook. The total flags changes above or below 100%.</p>
         <div id="gapWeightStatus" class="weight-total" role="status" aria-live="polite"></div>
-        <div class="weight-header"><span>Gap factor</span><span>Weight / Δ default</span><span>Score</span></div>
+        <p class="score-hint">Select a grid cell to display each factor score. <b>Red = 1</b> · Yellow = 3 · <b>Green = 5</b>. All weights are editable, including moved factors.</p>
+        <div class="weight-header"><span>Gap factor and source value</span><span>Weight / Δ</span><span>Score 1–5</span></div>
         <div id="gapFactorList"></div>
         <p class="micro" id="gapMovementNote" hidden>Additional amenity factors have been moved from Baseline. Their scores are reversed so lower accessibility indicates a greater gap.</p>
       </section>
-      <section id="panelBaseline" class="tab-panel weight-section" role="tabpanel" aria-labelledby="tabBaseline" hidden>
+      <section id="panelBaseline" class="tab-panel weight-section" role="tabpanel" aria-labelledby="tabBaseline">
         <div class="section-row"><h2>Baseline readiness factors</h2><button id="resetBaseline" class="button-inline">Reset weights</button></div>
         <p class="hint">Factors follow the spreadsheet row order and start at the spreadsheet weights (100% total). Use arrows to change by 1%; the signed change appears beneath each weight. A warning appears if the total is not 100%.</p>
         <div id="baselineWeightStatus" class="weight-total" role="status" aria-live="polite"></div>
-        <div class="weight-header"><span>Baseline factor</span><span>Weight / Δ default</span><span>Score</span></div>
+        <p class="score-hint">Select a grid cell to see each original factor score. <b>Red = 1</b> · Yellow = 3 · <b>Green = 5</b>. The score is for the selected cell, not the citywide mean.</p>
+        <div class="weight-header"><span>Factor and source value</span><span>Weight / Δ</span><span>Score 1–5</span></div>
         <div id="baselineFactorList"></div>
-        <details class="move-box"><summary class="move-summary">Amenity delivery scenario <span class="subcount">Optional</span></summary>
-          <p class="micro">Test area planning as a way to deliver amenities rather than requiring existing access before growth. Reassigned factors appear under the Gap tab, alongside the four housing factors.</p>
-          <label class="switch-line"><span><strong>Daily Needs → Gap</strong><small>Lower existing access becomes a higher gap</small></span><input id="moveNeeds" type="checkbox" role="switch"></label>
-          <label class="switch-line"><span><strong>Community Centres / Spaces → Gap</strong><small>Model opportunities for new community amenities</small></span><input id="moveCommunity" type="checkbox" role="switch"></label>
-          <p class="micro">Moved factor scores are calculated as 6 − existing accessibility score. Source data are unchanged.</p>
-        </details>
       </section>
-      <section id="panelCombined" class="tab-panel" role="tabpanel" aria-labelledby="tabCombined">
+      <section id="panelCombined" class="tab-panel" role="tabpanel" aria-labelledby="tabCombined" hidden>
         <div class="section-row"><h2>Combined score balance</h2><button id="resetCombined" class="button-inline">Reset balance</button></div>
         <p class="hint">Keep the factor weights selected in the other tabs. Shift only how much Baseline and Gap contribute to the combined score.</p>
         <div class="balance-card">
@@ -73,10 +88,10 @@
         <p class="formula" id="combinedFormula">Combined = 50% Baseline + 50% Gap</p>
         <p class="micro">Changing this slider never alters the underlying Baseline or Gap factor weights. Switch tabs to edit those weights.</p>
       </section>
-      <section class="cell-section"><div class="section-eyebrow">SELECTED 100 M GRID CELL</div><div class="cell-top"><h2 id="cellTitle">Choose a 100 m cell</h2><button id="clearCell" class="tiny" title="Clear selection">Clear</button></div><div id="cellDetail" class="muted">Click a grid cell to inspect its scores, housing composition and original source values.</div></section>
-      <section class="data-notes"><h2>Data & methodology</h2><p id="dataNotes">No model loaded yet.</p><p>Scores are averaged from valid 10 m analysis pixels in each fixed 100 m polygon. Browser scenarios reweight those scores without rerunning GIS analysis.</p><div class="actions"><button id="copyScenario" class="button-light">Copy scenario link</button><button id="exportScenario" class="button-light">Export scenario CSV</button><button id="resetWeights" class="button-light">Reset all</button></div></section>
+      <section class="cell-section"><div class="section-eyebrow" id="selectedCellHeading">SELECTED GRID CELL</div><div class="cell-top"><h2 id="cellTitle">Choose a grid cell</h2><button id="clearCell" class="tiny" title="Clear selection">Clear</button></div><div id="cellDetail" class="muted">Click a grid cell to inspect its scores, housing composition and original source values.</div></section>
+      <section class="data-notes"><h2>Data & methodology</h2><p id="dataNotes">No model loaded yet.</p><p id="resolutionNote">Scores are averaged from valid 10 m analysis pixels in each exported grid polygon. Browser scenarios reweight those scores without rerunning GIS analysis.</p><div class="actions"><button id="copyScenario" class="button-light">Copy scenario link</button><button id="exportScenario" class="button-light">Export scenario CSV</button><button id="resetWeights" class="button-light">Reset all</button></div></section>
     </div>
-    <footer class="sidebar-footer"><span id="cellCount">— cells</span><span>100 m grid · 1–5 scores</span></footer>
+    <footer class="sidebar-footer"><span id="cellCount">— cells</span><span id="gridSizeFooter">Grid · 1–5 scores</span></footer>
   </aside>
 </div>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>

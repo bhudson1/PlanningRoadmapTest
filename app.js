@@ -2,11 +2,13 @@ import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,pre
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
-const state={data:null,meta:null,defaults:{},selectedId:null,mode:'combined',mapLoaded:false,demo:false,
+const state={data:null,meta:null,defaults:{},selectedId:null,mode:'baseline',mapLoaded:false,demo:false,
   settings:{weights:{},moveNeeds:false,moveCommunity:false,baselineShare:50}};
-// OSM Standard raster tiles, desaturated entirely in MapLibre paint.
-// No key, no CARTO dependency. Interactive viewport requests only, with attribution.
-const style={version:8,sources:{
+// An API-key-free vector basemap lets MapLibre place actual street and place
+// labels above the analysis cells. Raster OSM is a fallback only when the
+// external vector style cannot be loaded; raster labels cannot be separated.
+const VECTOR_STYLE_URL='https://tiles.openfreemap.org/styles/positron';
+const fallbackRasterStyle={version:8,sources:{
   gray:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,
     attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>'}
 },layers:[
@@ -17,6 +19,29 @@ const style={version:8,sources:{
 ]};
 let map;
 let mappedDataset=null;
+let nativeLabelAnchor=null;
+let nativeBasemapVisibility=[];
+let vectorBasemapLoaded=false;
+let rasterFallbackUsed=false;
+
+function addOverlayLayer(layer){
+ // The symbol layers of the vector basemap stay ABOVE all thematic and
+ // reference overlays. MapLibre handles text placement and road rotation.
+ map.addLayer(layer,nativeLabelAnchor||undefined);
+}
+function setBasemapVisibility(){
+ if(!state.mapLoaded)return;
+ const show=$('basemapChoice').value!=='plain';
+ for(const entry of nativeBasemapVisibility){
+  if(map.getLayer(entry.id))map.setLayoutProperty(entry.id,'visibility',show?entry.visibility:'none');
+ }
+ const note=$('basemapLabelNote');
+ if(!note)return;
+ if(!show)note.textContent='Plain grey hides all basemap details and labels. Optional reference layers remain visible.';
+ else if(vectorBasemapLoaded&&nativeLabelAnchor)note.textContent='Basemap street and place labels display above the analysis grid and reference layers. Custom road labels are off by default.';
+ else note.textContent='Using raster fallback: street names are part of the basemap image and cannot be layered above the grid. Check that OpenFreeMap is reachable.';
+}
+
 let references=[];
 const referenceVisibility={};
 const referenceLabels={};
@@ -24,7 +49,7 @@ let labelFrame=0;
 
 const lowToHigh=['#cb4c47','#edb05b','#f1e69c','#99ce83','#26885c'];
 // MapLibre evaluates weights as a paint expression. The polygons and their
-// attributes are uploaded ONCE; adjusting weights never retransmits a 100m
+// attributes are uploaded ONCE; adjusting weights never retransmits the
 // GeoJSON dataset. This is considerably faster for citywide layers.
 function scoreValueExpr(factor){return ['to-number',['get',factor.id],0];}
 function scoreIsValidExpr(factor){
@@ -75,16 +100,34 @@ function fillExpression(mode){
 }
 function createMap(){
   if(!window.maplibregl){$('loading').innerHTML='<h2>Map library unavailable</h2><p>Connect to the internet to load the MapLibre library, or vendor it for offline use.</p>';return;}
-  map = new maplibregl.Map({container:'map',style,center:[-123.12,49.25],zoom:11.5,
+  map = new maplibregl.Map({container:'map',style:VECTOR_STYLE_URL,center:[-123.12,49.25],zoom:11.5,
     attributionControl:false,pitch:0,maxPitch:45});
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
   map.addControl(new maplibregl.AttributionControl({compact:false}),'bottom-right');
+  // Preserve existing grid functionality if the public vector style is blocked.
+  // Fallback occurs only before the first successful map load.
+  map.on('error',e=>{
+    if(!state.mapLoaded&&!rasterFallbackUsed){
+      console.warn('Vector basemap unavailable, using OpenStreetMap raster fallback:',e?.error||e);
+      rasterFallbackUsed=true;
+      map.setStyle(fallbackRasterStyle);
+    }
+  });
   map.on('load',()=>{
     state.mapLoaded=true;
+    vectorBasemapLoaded=!rasterFallbackUsed;
+    const baseLayers=map.getStyle().layers||[];
+    nativeBasemapVisibility=baseLayers.map(layer=>({id:layer.id,visibility:layer.layout?.visibility||'visible'}));
+    // Place the grid directly UNDER the first basemap symbol. MapLibre's
+    // built-in label collision/curved-road placement remains untouched.
+    const firstSymbol=baseLayers.find(layer=>layer.type==='symbol');
+    nativeLabelAnchor=vectorBasemapLoaded?(firstSymbol?.id||null):null;
+    map.addLayer({id:'plain-gray-background',type:'background',paint:{'background-color':'#e5e8e8'}},baseLayers[0]?.id);
+    setBasemapVisibility();
     map.addSource('cells',{type:'geojson',data:{type:'FeatureCollection',features:[]},generateId:false});
-    map.addLayer({id:'scores',type:'fill',source:'cells',paint:{'fill-color':fillExpression(state.mode),'fill-opacity':.77}});
-    map.addLayer({id:'boundaries',type:'line',source:'cells',minzoom:12,paint:{'line-color':'#304a52','line-opacity':.26,'line-width':.4}});
-    map.addLayer({id:'selection',type:'line',source:'cells',paint:{'line-color':'#102e3d','line-width':2.8,'line-opacity':1},filter:['==',['get','GRID_ID'],'__none__']});
+    addOverlayLayer({id:'scores',type:'fill',source:'cells',paint:{'fill-color':fillExpression(state.mode),'fill-opacity':.77}});
+    addOverlayLayer({id:'boundaries',type:'line',source:'cells',minzoom:12,paint:{'line-color':'#304a52','line-opacity':.26,'line-width':.4}});
+    addOverlayLayer({id:'selection',type:'line',source:'cells',paint:{'line-color':'#102e3d','line-width':2.8,'line-opacity':1},filter:['==',['get','GRID_ID'],'__none__']});
     map.on('click','scores',e=>{if(e.features?.length){state.selectedId=e.features[0].properties.GRID_ID;updateSelection();}});
     map.on('move',scheduleReferenceLabels);
     map.on('resize',scheduleReferenceLabels);
@@ -114,15 +157,15 @@ function renderReferenceLayers(){
   const visible=referenceVisibility[spec.id]?'visible':'none';
   const c=spec.color||'#537d9b',g=String(spec.geometry_type||'').toLowerCase();
   if(g==='polygon'){
-   if(!map.getLayer('webref-fill-'+spec.id))map.addLayer({id:'webref-fill-'+spec.id,type:'fill',source:sid,
+   if(!map.getLayer('webref-fill-'+spec.id))addOverlayLayer({id:'webref-fill-'+spec.id,type:'fill',source:sid,
     layout:{visibility:visible},paint:{'fill-color':c,'fill-opacity':.12}});
-   if(!map.getLayer('webref-line-'+spec.id))map.addLayer({id:'webref-line-'+spec.id,type:'line',source:sid,
+   if(!map.getLayer('webref-line-'+spec.id))addOverlayLayer({id:'webref-line-'+spec.id,type:'line',source:sid,
     layout:{visibility:visible},paint:{'line-color':c,'line-width':1.7,'line-opacity':.94}});
   }else if(g==='polyline'||g==='line'){
-   if(!map.getLayer('webref-line-'+spec.id))map.addLayer({id:'webref-line-'+spec.id,type:'line',source:sid,
+   if(!map.getLayer('webref-line-'+spec.id))addOverlayLayer({id:'webref-line-'+spec.id,type:'line',source:sid,
     layout:{visibility:visible},paint:{'line-color':c,'line-width':2.3,'line-opacity':.95}});
   }else if(g==='point'||g==='multipoint'){
-   if(!map.getLayer('webref-point-'+spec.id))map.addLayer({id:'webref-point-'+spec.id,type:'circle',source:sid,
+   if(!map.getLayer('webref-point-'+spec.id))addOverlayLayer({id:'webref-point-'+spec.id,type:'circle',source:sid,
     layout:{visibility:visible},paint:{'circle-color':c,'circle-radius':5,'circle-stroke-width':1.6,'circle-stroke-color':'#fff'}});
   }
  }
@@ -150,7 +193,8 @@ function referenceList(){
   const labelCheck=document.createElement('input');labelCheck.type='checkbox';
   labelCheck.checked=!!referenceLabels[ref.id];labelCheck.disabled=!ref.source_label_field;
   labelCheck.addEventListener('change',()=>{referenceLabels[ref.id]=labelCheck.checked;scheduleReferenceLabels();});
-  const span=document.createElement('span');span.textContent=ref.source_label_field?'Show labels · '+ref.source_label_field:'No label field selected';
+  const span=document.createElement('span');span.textContent=ref.source_label_field?
+    (ref.native_road_labels?'Optional custom road labels · ':'Show labels · ')+ref.source_label_field:'No label field selected';
   sub.append(labelCheck,span);wrap.append(sub);
   if(ref.error){const err=document.createElement('div');err.className='reference-error';err.textContent=ref.error;wrap.append(err);}
   el.append(wrap);
@@ -235,7 +279,13 @@ async function loadReferences(meta){
    record.geojson=data;
   }catch(err){record.error='Could not load reference GeoJSON ('+err.message+')';}
   if(record.geojson){referenceVisibility[record.id]=ref.visible!==false;
-    referenceLabels[record.id]=!!ref.labels_visible;}
+    // Previously-exported road name fields were drawn at feature midpoints;
+    // they looked poor and duplicated the new native vector street labels.
+    // Keep the opt-in control, but start road-like line labels switched off.
+    const isRoadLine=/^(line|polyline)$/i.test(ref.geometry_type||'') &&
+      /road|street|streetname|roadname|highway|transport/i.test((ref.name||'')+' '+(ref.source_label_field||''));
+    record.native_road_labels=isRoadLine;
+    referenceLabels[record.id]=!!ref.labels_visible&&!isRoadLine;}
   references.push(record);
  }
  // Keep unavailable rows visible with an error; never add a bad GeoJSON source.
@@ -397,15 +447,21 @@ function updateSelection(){
      lines.push(`<p><b>${escapeHTML(title)}</b><br>${description}</p>${sub}`);
     }
   }
-  if(isFiniteNumber(p.PIPE_DWELLINGS))lines.push(`<p><b>Proposed dwelling units in source DA: ${Number(p.PIPE_DWELLINGS).toLocaleString(undefined,{maximumFractionDigits:0})}</b><br>Ratios are based on proposed dwelling units at the time of data collection in the dissemination area. This is not the number of homes within this 100 m cell.</p>`);
+  if(isFiniteNumber(p.PIPE_DWELLINGS))lines.push(`<p><b>Proposed dwelling units in source DA: ${Number(p.PIPE_DWELLINGS).toLocaleString(undefined,{maximumFractionDigits:0})}</b><br>Ratios are based on proposed dwelling units at the time of data collection in the dissemination area. This is not the number of homes within this ${Number(state.meta?.grid_size_m)||100} m cell.</p>`);
   if(lines.length===0)lines.push('<p>Housing share source fields are not available for this cell.</p>');
   el.innerHTML=`<div class="score-comparison"><div><small>Baseline</small><strong>${prettyScore(p.__base)}</strong></div><div><small>Gap</small><strong>${prettyScore(p.__gap)}</strong></div><div><small>Combined</small><strong>${prettyScore(p.__combined)}</strong></div></div><details class="housing-details" open><summary>Housing composition & source context</summary>${lines.join('')}<p><small>Tenure shares overlap and do not necessarily total 100%.</small></p></details>`;
  }
  for(const f of state.meta.factors){
   const badge=$('score_'+f.id);if(!badge)continue;
   const value=selected?adjustedFactorScore(p,f,state.settings):null;
-  badge.textContent=prettyScore(value);
+  badge.textContent=value===null?'—':prettyScore(value);
   badge.classList.toggle('missing',value===null);
+  badge.title=value===null?(selected?'Score unavailable for this cell':'Select a grid cell to inspect its factor scores'):
+     `${f.name}: ${prettyScore(value)} / 5`;
+  const c=value===null?null:colorForScore(value);
+  badge.style.backgroundColor=c||'';
+  badge.style.color=value===null?'':scoreTextColor(c);
+  badge.setAttribute('aria-label',badge.title);
   const native=$('native_'+f.id);
   if(native){
    const orig=selected&&p['V'+f.id.substring(1)];
@@ -414,7 +470,7 @@ function updateSelection(){
      const lookup=f.native_codes || null;
      if(lookup)display=lookup[String(Math.round(orig))] || display;
      native.textContent='Source: '+display;
-     native.title=f.description||'Original source value summarized to 100 m';
+     native.title=f.description||`Original source value summarized to ${Number(state.meta?.grid_size_m)||100} m`;
    }else {native.textContent='';native.title='Original source value not available';}
   }
  }
@@ -447,6 +503,17 @@ function defaultWeights(factors){
    group.forEach((f,i)=>{result[f.id]=floors[i];});
  }
  return result;
+}
+function colorForScore(value){
+ const val=Math.max(1,Math.min(5,Number(value)));
+ const lower=Math.min(3,Math.floor(val-1));const t=val-(lower+1);
+ const a=SCORE_STOPS[lower][1],b=SCORE_STOPS[lower+1][1];
+ function mix(i){return Math.round(parseInt(a.slice(i,i+2),16)*(1-t)+parseInt(b.slice(i,i+2),16)*t).toString(16).padStart(2,'0');}
+ return '#'+mix(1)+mix(3)+mix(5);
+}
+function scoreTextColor(hex){if(!hex)return '';
+ const channels=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(x=>x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4));
+ return channels[0]*.2126+channels[1]*.7152+channels[2]*.0722>.34?'#23373b':'#fff';
 }
 function formatDelta(delta){return delta>0?`+${delta}`:String(delta);}
 function setWeight(f,raw){
@@ -493,7 +560,7 @@ function addFactorRows(holder,stage){
      note.innerHTML=`<span>Default ${state.defaults[f.id]??0}%</span><strong id="delta_${f.id}" class="weight-delta">0</strong>`;
      controls.append(stepper,note);
      const score=document.createElement('div');score.className='weight-label';
-     score.innerHTML=`<span class="factor-value missing" id="score_${f.id}">—</span>`;
+     score.innerHTML=`<span class="factor-value score-chip missing" id="score_${f.id}" title="Select a grid cell to show its factor score">—</span>`;
      row.append(label,controls,score);holder.append(row);
  }
  return factors.length;
@@ -506,6 +573,7 @@ function buildWeights(){
  $('tabBaseline').querySelector('small').textContent=`${bn} factors`;
  $('tabGap').querySelector('small').textContent=`${gn} factors`;
  updateWeightShares();
+ updateSelection(); // Reapply selected-cell colour-coded scores after moving factor DOM rows.
 }
 function updateWeightShares(){
  if(!state.meta)return;
@@ -527,15 +595,15 @@ function updateWeightShares(){
  }
 }
 function activateTab(next){
- if(!['gap','baseline','combined'].includes(next))return;
+ if(!['baseline','gap','combined'].includes(next))return;
  state.mode=next;
- for(const tab of ['gap','baseline','combined']){
+ for(const tab of ['baseline','gap','combined']){
   const active=tab===next;const cap=tab[0].toUpperCase()+tab.slice(1);
   const button=$('tab'+cap),panel=$('panel'+cap);
   button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;
   panel.hidden=!active;
  }
- $('mapContext').textContent=next==='baseline'?'BASELINE SCORE':next==='gap'?'HOUSING GAP SCORE':'COMBINED SCORE';
+ $('mapContext').textContent=next==='baseline'?'BASELINE SCORE':next==='gap'?'GAP SCORE':'COMBINED SCORE';
  legend();
  if(state.data)scheduleUpdate('paint');
 }
@@ -570,9 +638,14 @@ async function fetchData(demo=false){
  $('dataTag').textContent=demo?'SYNTHETIC DEMO':'EXPORT · '+(meta.cell_count||geojson.features.length).toLocaleString()+' cells';
  $('dataTag').style.background=demo?'#ffe8c9':'#e9f2f2';
  $('cellCount').textContent=`${geojson.features.length.toLocaleString()} cells`;
+ const gridSize=Number(meta.grid_size_m)||100, sourceSize=Number(meta.source_cell_size_m)||10;
+ $('selectedCellHeading').textContent=`SELECTED ${gridSize} M GRID CELL`;
+ $('cellTitle').textContent=`Choose a ${gridSize} m cell`;
+ $('gridSizeFooter').textContent=`${gridSize} m grid · 1–5 scores`;
+ $('resolutionNote').textContent=`Scores are averaged from valid ${sourceSize} m analysis pixels in each ${gridSize} m grid polygon. Browser scenarios reweight those scores without rerunning GIS analysis.`;
  $('dataNotes').textContent=`Factor weights default to the source workbook. Export created ${meta.created_utc?new Date(meta.created_utc).toLocaleString():'unknown date'}. Housing shares are fractions (0–1), displayed as percentages. Original workbook targets are embedded in metadata. Scenario changes do not alter the underlying exported data.`;
- $('bottomNote').textContent=demo?'SYNTHETIC DEMO — not Vancouver planning results':'100 m fixed grid · Browser-side scoring · Zero GIS recomputation';
- buildWeights();activateTab('combined');scheduleUpdate('full',true);updateMap(true);
+ $('bottomNote').textContent=demo?'SYNTHETIC DEMO — not Vancouver planning results':`${Number(meta.grid_size_m)||100} m grid · Browser-side scoring · Zero GIS recomputation`;
+ buildWeights();activateTab('baseline');scheduleUpdate('full',true);updateMap(true);
 }
 function updateSplit(){const b=Number($('split').value);$('splitBase').textContent=b+'%';$('splitGap').textContent=(100-b)+'%';$('combinedFormula').textContent=`Combined = ${b}% Baseline + ${100-b}% Gap`;}
 function loadScenarioFromHash(){try{if(location.hash.startsWith('#scenario='))return JSON.parse(decodeURIComponent(location.hash.slice(10)));}catch(e){}return null;}
@@ -592,15 +665,12 @@ function setHandlers(){
  $('demoBtn').addEventListener('click',()=>fetchData(true).catch(e=>setError(e.message)));
  $('retryBtn').addEventListener('click',()=>fetchData(false).catch(e=>setError(e.message)));
  $('resetView').addEventListener('click',()=>updateMap(true));
- $('basemapChoice').addEventListener('change',()=>{
-  if(state.mapLoaded)map.setLayoutProperty('gray-basemap','visibility',
-    $('basemapChoice').value==='plain'?'none':'visible');
- });
- for(const tab of ['gap','baseline','combined']){
+ $('basemapChoice').addEventListener('change',setBasemapVisibility);
+ for(const tab of ['baseline','gap','combined']){
   const name=tab[0].toUpperCase()+tab.slice(1);$('tab'+name).addEventListener('click',()=>activateTab(tab));
   $('tab'+name).addEventListener('keydown',e=>{
    if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
-   e.preventDefault();const keys=['gap','baseline','combined'],i=keys.indexOf(tab);
+   e.preventDefault();const keys=['baseline','gap','combined'],i=keys.indexOf(tab);
    const next=e.key==='Home'?0:e.key==='End'?2:(i+(e.key==='ArrowRight'?1:-1)+3)%3;
    activateTab(keys[next]);$('tab'+keys[next][0].toUpperCase()+keys[next].slice(1)).focus();
   });
@@ -622,4 +692,6 @@ function setHandlers(){
  });
  $('exportScenario').addEventListener('click',exportCSV);
 }
-setHandlers();createMap();fetchData(false).catch(e=>{console.info('Model data not yet exported:',e.message);});
+setHandlers();createMap();
+import('./opendata.mjs').then(({initOpenDataWidget})=>initOpenDataWidget({getMap:()=>map,getMapLoaded:()=>state.mapLoaded,getLabelAnchor:()=>nativeLabelAnchor})).catch(e=>console.warn('Vancouver Open Data panel unavailable',e));
+fetchData(false).catch(e=>{console.info('Model data not yet exported:',e.message);});

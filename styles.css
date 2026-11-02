@@ -105,3 +105,61 @@
 @media(max-width:1020px){.map-update-status{top:151px;left:13px}}
 @media(max-width:700px){.map-update-status{top:107px;left:7px;width:min(235px,calc(100% - 14px));padding:8px 10px;font-size:11px}.sidebar-update-status{padding:6px 16px;font-size:10px}}
 @media(prefers-reduced-motion:reduce){.update-status-icon,.update-progress-track>span.indeterminate{animation:none}}
+
+/* v0.4.66 — explainer for native vector labels above the analysis grid */
+#basemapLabelNote{margin:8px 0 5px;font-size:10px;line-height:1.5;color:#637c84}
+
+/* v0.4.67: narrative sequence, visible factor scores and editable amenity routes */
+.analysis-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}
+.analysis-tab span{font-size:11px;letter-spacing:0}
+.routing-panel{padding:11px 17px 12px;background:#f4f8f7;border-bottom:1px solid #dce7e4}
+.routing-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;color:#224b55;font-size:12px}
+.routing-heading span{font-size:10px;color:#6d878c}
+.routing-panel p{margin:5px 0 8px}
+.routing-panel .switch-line{padding:7px 0;margin:0;border-top:1px solid #e1eae8}
+.routing-panel .switch-line strong{font-size:11px}
+.routing-panel .switch-line small{font-size:10px}
+.score-hint{padding:8px 10px;border-radius:6px;background:#eef5f3;color:#536c71;font-size:11px;line-height:1.5;margin:10px 0}
+.factor-row{grid-template-columns:minmax(0,1fr) 123px 56px;gap:9px}
+.weight-header{grid-template-columns:minmax(0,1fr) 123px 56px;gap:9px}
+.weight-header span:nth-child(3){text-align:center}
+.weight-label{display:flex;justify-content:center}
+.factor-value.score-chip{display:inline-flex;align-items:center;justify-content:center;min-width:47px;height:36px;border-radius:7px;background:#e4e9e8;color:#344e51;font-size:14px;font-weight:850;border:1px solid #b7c9c8;font-variant-numeric:tabular-nums;box-shadow:inset 0 -1px 0 #2332}
+.factor-value.score-chip.missing{background:#f0f2f1!important;color:#87979b!important;border:1px dashed #c9d7d6;box-shadow:none}
+.weight-default-note{font-size:9px}
+@media(max-width:700px){.factor-row,.weight-header{grid-template-columns:minmax(0,1fr) 112px 47px;gap:6px}.factor-value.score-chip{min-width:42px;font-size:12px}.analysis-tab span{font-size:10px}}
+.portal-panel{margin:11px 17px 14px;padding:12px 13px;border:1px solid #cbdcda;background:#fcfdfc;border-radius:8px}
+.portal-panel>summary{font-size:11px;font-weight:850;letter-spacing:.045em;color:#234b56;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:6px}
+.portal-panel>summary small{font-size:10px;color:#718a8e;letter-spacing:0;font-weight:600}
+.portal-panel p{line-height:1.5}
+.portal-field{display:flex;flex-direction:column;gap:5px;font-size:11px;font-weight:750;color:#45616a;margin:10px 0}
+.portal-field input{width:100%;border:1px solid #cbdcda;border-radius:5px;padding:8px 9px;font-size:12px;background:#fff;color:#244352}
+.portal-actions{display:flex;gap:6px;flex-wrap:wrap;margin:7px 0}
+.portal-actions button,.portal-panel>button{padding:8px 10px;font-size:11px}
+#portalStatus{padding:7px 9px;border-radius:5px;background:#edf5f6;overflow-wrap:anywhere}
+#portalStatus[data-type="error"]{background:#fff0e8;color:#904b2e}
+#portalStatus[data-type="success"]{background:#eaf7f0;color:#22684b}
+.portal-item{margin:8px 0;padding:9px 8px;border:1px solid #dce8e6;border-radius:6px;background:#f7faf9;display:flex;align-items:center;gap:8px;justify-content:space-between}
+.portal-item strong{display:block;color:#254c59;font-size:11px;overflow-wrap:anywhere}
+.portal-item small{display:block;color:#75878c;font-size:10px}
+.portal-item button{flex:none;font-size:11px;border:1px solid #a7c9c6;color:#246567;background:#fff;border-radius:5px;padding:5px 8px}
+.portal-item button:disabled{opacity:.55;cursor:wait}
+.portal-added-list{margin-top:9px}
+.portal-results{max-height:250px;overflow:auto}
+
+.portal-visibility{display:flex;gap:4px;align-items:center;font-size:10px;color:#476b75}.portal-visibility input{accent-color:#327d83}.portal-layer-select{max-width:190px;padding:6px;border:1px solid #cfdddd;border-radius:4px;font-size:11px}
+
+/* v0.4.68 — public Vancouver Open Data panel; no OAuth or Esri SDK. */
+.open-data-panel a{color:#246b87;text-decoration:underline;text-underline-offset:2px}
+.open-data-status{font-size:11px;line-height:1.5;background:#eef6f6;border:1px solid #d8e9e7;border-radius:6px;padding:8px 10px;color:#436672;margin:7px 0}
+.open-data-status[data-type="error"]{background:#fff2ed;border-color:#efd0c7;color:#92533f}
+.open-data-status[data-type="success"]{background:#edf8f3;border-color:#d0e7da;color:#296e55}
+.open-data-count{font-size:10px;color:#718991;margin:auto 0}
+.open-data-panel .portal-item{align-items:flex-start;flex-wrap:wrap}
+.open-data-panel .portal-item>div:first-child{min-width:0;flex:1 1 145px}
+.open-data-row-actions{display:flex;align-items:center;flex-wrap:wrap;gap:7px}
+.open-data-row-actions a{font-size:10px;white-space:nowrap}
+.open-data-row-actions button{white-space:nowrap}
+.opendata-popup{font:11px 'Noto Sans',system-ui,sans-serif;max-width:265px;overflow-wrap:anywhere}
+.opendata-popup strong{display:block;margin-bottom:5px;font-size:12px}
+.opendata-prop{padding:2px 0;border-top:1px solid #edf1f1}
