@@ -1,16 +1,18 @@
 {
   "version": "1.0",
-  "created_utc": "2026-10-30T22:29:56.402697Z",
+  "created_utc": "2026-11-03T16:40:56.796498Z",
   "study": "City study-area polygon supplied in ArcGIS Pro",
-  "grid_size_m": 100,
-  "source_cell_size_m": 10,
+  "grid_size_m": 90,
+  "source_cell_size_m": 10.0,
   "spatial_ref": "EPSG:26910",
   "units": "Housing proportions R_* are fractions 0–1; scores are 1–5",
-  "cell_count": 11406,
+  "cell_count": 14074,
   "factors": [
     {
       "id": "F001",
       "stage": "Baseline",
+      "spreadsheet_row": 2,
+      "default_weight": 2.0,
       "category": "Environmental",
       "name": "Environmental Risks - Flood Hazard Risk",
       "raster": "FloodHazardRisk_RR",
@@ -33,6 +35,8 @@
     {
       "id": "F002",
       "stage": "Baseline",
+      "spreadsheet_row": 3,
+      "default_weight": 3.0,
       "category": "Infrastructure",
       "name": "Sewer Capacity",
       "raster": "SewerCapacityolderversion_RR",
@@ -55,6 +59,8 @@
     {
       "id": "F003",
       "stage": "Baseline",
+      "spreadsheet_row": 4,
+      "default_weight": 10.0,
       "category": "Infrastructure",
       "name": "Fire Flow",
       "raster": "FireFlow_RR",
@@ -77,6 +83,8 @@
     {
       "id": "F004",
       "stage": "Baseline",
+      "spreadsheet_row": 5,
+      "default_weight": 4.0,
       "category": "Census",
       "name": "Population Change",
       "raster": "PopulationChange_RR",
@@ -95,6 +103,8 @@
     {
       "id": "F005",
       "stage": "Baseline",
+      "spreadsheet_row": 6,
+      "default_weight": 2.0,
       "category": "Environmental",
       "name": "Environmental Risks - Seismic Risk",
       "raster": "SeismicRisk_RR",
@@ -119,6 +129,8 @@
     {
       "id": "F006",
       "stage": "Baseline",
+      "spreadsheet_row": 7,
+      "default_weight": 2.0,
       "category": "Environmental",
       "name": "Environmental Risks - Soil Liquefaction Risk",
       "raster": "SoilLiquefactionRisk_RR",
@@ -140,6 +152,8 @@
     {
       "id": "F007",
       "stage": "Baseline",
+      "spreadsheet_row": 8,
+      "default_weight": 1.0,
       "category": "Environmental",
       "name": "Environmental Protections - Groundwater Areas of Concern",
       "raster": "GroundwaterAreasofConcern_RR",
@@ -161,6 +175,8 @@
     {
       "id": "F008",
       "stage": "Baseline",
+      "spreadsheet_row": 9,
+      "default_weight": 1.0,
       "category": "Environmental",
       "name": "Environmental Protections - Environmentally Sensitive Areas",
       "raster": "EnvironmentallySensitiveAreas_RR",
@@ -182,6 +198,8 @@
     {
       "id": "F009",
       "stage": "Baseline",
+      "spreadsheet_row": 10,
+      "default_weight": 3.0,
       "category": "Schools",
       "name": "Access to Elementary Schools",
       "raster": "AccesstoElementarySchools_RR",
@@ -200,6 +218,8 @@
     {
       "id": "F010",
       "stage": "Baseline",
+      "spreadsheet_row": 11,
+      "default_weight": 6.0,
       "category": "Schools",
       "name": "Elementary School Capacity",
       "raster": "ElementarySchoolCapacity_RR",
@@ -218,6 +238,8 @@
     {
       "id": "F011",
       "stage": "Baseline",
+      "spreadsheet_row": 12,
+      "default_weight": 6.0,
       "category": "Schools",
       "name": "Secondary School Capacity",
       "raster": "SecondarySchoolCapacity_RR",
@@ -236,6 +258,8 @@
     {
       "id": "F012",
       "stage": "Baseline",
+      "spreadsheet_row": 13,
+      "default_weight": 4.0,
       "category": "Childcare",
       "name": "Childcare Needs Met Ages 0-5",
       "raster": "ChildcareNeedsMetAges05_RR",
@@ -254,6 +278,8 @@
     {
       "id": "F013",
       "stage": "Baseline",
+      "spreadsheet_row": 14,
+      "default_weight": 4.0,
       "category": "Childcare",
       "name": "Childcare Needs Met Ages 5-12",
       "raster": "ChildcareNeedsMetAges512_RR",
@@ -272,6 +298,8 @@
     {
       "id": "F014",
       "stage": "Baseline",
+      "spreadsheet_row": 15,
+      "default_weight": 2.0,
       "category": "Childcare",
       "name": "Access to Childcare Facilities",
       "raster": "AccesstoChildcareFacilities_RR",
@@ -290,6 +318,8 @@
     {
       "id": "F015",
       "stage": "Baseline",
+      "spreadsheet_row": 16,
+      "default_weight": 10.0,
       "category": "Transportation",
       "name": "Access to Transit",
       "raster": "AccesstoTransit_RR",
@@ -314,6 +344,8 @@
     {
       "id": "F016",
       "stage": "Baseline",
+      "spreadsheet_row": 17,
+      "default_weight": 10.0,
       "category": "Parks",
       "name": "Access to Parks",
       "raster": "AccesstoParks_RR",
@@ -332,6 +364,8 @@
     {
       "id": "F017",
       "stage": "Baseline",
+      "spreadsheet_row": 18,
+      "default_weight": 10.0,
       "category": "Community Spaces",
       "name": "Access to Community Spaces",
       "raster": "AccesstoCommunitySpaces_RR",
@@ -350,6 +384,8 @@
     {
       "id": "F018",
       "stage": "Baseline",
+      "spreadsheet_row": 19,
+      "default_weight": 2.0,
       "category": "Daily Needs",
       "name": "Access to Restaurants & Cafes",
       "raster": "AccesstoRestaurantsCafes_RR",
@@ -368,6 +404,8 @@
     {
       "id": "F019",
       "stage": "Baseline",
+      "spreadsheet_row": 20,
+      "default_weight": 7.0,
       "category": "Daily Needs",
       "name": "Access to Grocery Stores & Bakeries",
       "raster": "AccesstoGroceryStoresBakeries_RR",
@@ -386,6 +424,8 @@
     {
       "id": "F020",
       "stage": "Baseline",
+      "spreadsheet_row": 21,
+      "default_weight": 3.0,
       "category": "Daily Needs",
       "name": "Access to Health Services",
       "raster": "AccesstoHealthServices_RR",
@@ -404,6 +444,8 @@
     {
       "id": "F021",
       "stage": "Baseline",
+      "spreadsheet_row": 22,
+      "default_weight": 6.0,
       "category": "Commercial Uses",
       "name": "Existing Retail Areas",
       "raster": "ExistingRetailAreas_RR",
@@ -419,6 +461,8 @@
     {
       "id": "F022",
       "stage": "Baseline",
+      "spreadsheet_row": 23,
+      "default_weight": 2.0,
       "category": "Employment",
       "name": "Areas to Prioritize Intensification",
       "raster": "AreastoPrioritizeIntensification_RR",
@@ -440,6 +484,8 @@
     {
       "id": "F023",
       "stage": "Gap",
+      "spreadsheet_row": 2,
+      "default_weight": 25.0,
       "category": "Existing Housing Types",
       "name": "Existing housing-type mix gap",
       "raster": "ExistingTypeMix_GAP",
@@ -455,6 +501,8 @@
     {
       "id": "F024",
       "stage": "Gap",
+      "spreadsheet_row": 3,
+      "default_weight": 25.0,
       "category": "Pipeline Housing Types",
       "name": "Pipeline housing-type mix gap",
       "raster": "PipelineTypeMix_GAP",
@@ -470,6 +518,8 @@
     {
       "id": "F025",
       "stage": "Gap",
+      "spreadsheet_row": 4,
+      "default_weight": 25.0,
       "category": "Existing Housing Tenures",
       "name": "Existing tenure priority score",
       "raster": "ExistingTenureMix_GAP",
@@ -485,6 +535,8 @@
     {
       "id": "F026",
       "stage": "Gap",
+      "spreadsheet_row": 5,
+      "default_weight": 25.0,
       "category": "Pipeline Housing Tenures",
       "name": "Pipeline tenure priority score",
       "raster": "PipelineTenureMix_GAP",
@@ -535,23 +587,10 @@
     "Baseline": "5 = stronger current conditions for accommodating growth",
     "Gap": "5 = greater housing mix need / tenure priority",
     "Move": "Moved accessible amenities use (6 - baseline score) to model amenity need",
-    "coverage": "Each score is the mean of valid scored 10m pixels in its 100m cell; no coverage means excluded from denominator",
-    "shares": "Raw housing shares averaged across valid 10m pixels; tenure shares overlap",
-    "units": "PIPE_DWELLINGS represents a source dissemination-area value observed at data collection, not new units located inside the 100m cell",
-    "scores": "Equal stage scores are mean of available per-factor 100m scores, independent of workbook weights."
+    "coverage": "Each score is the mean of valid scored 10.0m pixels in its 90m cell; no coverage means excluded from denominator",
+    "shares": "Raw housing shares averaged across valid 10.0m pixels; tenure shares overlap",
+    "units": "PIPE_DWELLINGS represents a source dissemination-area value observed at data collection, not new units located inside the web cell",
+    "scores": "Equal stage scores are mean of available per-factor cell scores, independent of workbook weights."
   },
-  "references": [
-    {
-      "id": "major_roads",
-      "name": "Major Roads",
-      "color": "#375a7f",
-      "geometry_type": "polyline",
-      "label_field": "WEB_LABEL",
-      "source_label_field": "Label",
-      "file": "references/major_roads.geojson",
-      "feature_count": 118,
-      "visible": true,
-      "labels_visible": true
-    }
-  ]
+  "references": []
 }
