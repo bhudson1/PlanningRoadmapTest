@@ -2,7 +2,7 @@ import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,pre
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
-const state={data:null,meta:null,defaults:{},selectedId:null,mode:'baseline',mapLoaded:false,demo:false,
+const state={data:null,meta:null,defaults:{},selectedId:null,mode:'baseline',mapLoaded:false,demo:false,scoreRanges:{baseline:null,gap:null,combined:null},
   settings:{weights:{},moveNeeds:false,moveCommunity:false,baselineShare:50}};
 // An API-key-free vector basemap lets MapLibre place actual street and place
 // labels above the analysis cells. Raster OSM is a fallback only when the
@@ -47,7 +47,20 @@ const referenceVisibility={};
 const referenceLabels={};
 let labelFrame=0;
 
-const lowToHigh=['#cb4c47','#edb05b','#f1e69c','#99ce83','#26885c'];
+// Nine colour stops sampled from the user's ArcGIS Pro legend (low=red, high=green).
+// This is the only palette used by the map, its legend and the factor score chips.
+function scoreRange(mode){
+ const range=state.scoreRanges?.[mode];
+ return range && Number.isFinite(range.min) && Number.isFinite(range.max) && range.max-range.min>1e-8
+   ? range : {min:1,max:5};
+}
+function stretchedStops(mode){
+ const {min,max}=scoreRange(mode);
+ return SCORE_STOPS.flatMap(([score,hex])=>[min+(max-min)*(score-1)/4,hex]);
+}
+function scoreGradient(){
+ return `linear-gradient(to right,${SCORE_STOPS.map(([score,hex])=>`${hex} ${(score-1)*25}%`).join(',')})`;
+}
 // MapLibre evaluates weights as a paint expression. The polygons and their
 // attributes are uploaded ONCE; adjusting weights never retransmits the
 // GeoJSON dataset. This is considerably faster for citywide layers.
@@ -96,7 +109,7 @@ function fillExpression(mode){
         ...BIVARIATE.flatMap((hex,i)=>[i,hex]),'#dce3e1']]];
  }
  return ['let','v',mapScoreExpr(mode),['case',['<',['var','v'],1],'#dce3e1',
-  ['interpolate',['linear'],['var','v'],...SCORE_STOPS.flatMap(([value,color])=>[value,color])]]];
+  ['interpolate',['linear'],['var','v'],...stretchedStops(mode)]]];
 }
 function createMap(){
   if(!window.maplibregl){$('loading').innerHTML='<h2>Map library unavailable</h2><p>Connect to the internet to load the MapLibre library, or vendor it for offline use.</p>';return;}
@@ -125,7 +138,7 @@ function createMap(){
     map.addLayer({id:'plain-gray-background',type:'background',paint:{'background-color':'#e5e8e8'}},baseLayers[0]?.id);
     setBasemapVisibility();
     map.addSource('cells',{type:'geojson',data:{type:'FeatureCollection',features:[]},generateId:false});
-    addOverlayLayer({id:'scores',type:'fill',source:'cells',paint:{'fill-color':fillExpression(state.mode),'fill-opacity':.77}});
+    addOverlayLayer({id:'scores',type:'fill',source:'cells',paint:{'fill-color':fillExpression(state.mode),'fill-opacity':.92}});
     addOverlayLayer({id:'boundaries',type:'line',source:'cells',minzoom:12,paint:{'line-color':'#304a52','line-opacity':.26,'line-width':.4}});
     addOverlayLayer({id:'selection',type:'line',source:'cells',paint:{'line-color':'#102e3d','line-width':2.8,'line-opacity':1},filter:['==',['get','GRID_ID'],'__none__']});
     map.on('click','scores',e=>{if(e.features?.length){state.selectedId=e.features[0].properties.GRID_ID;updateSelection();}});
@@ -339,6 +352,14 @@ function calculateRevision(revision){
  const settings={...state.settings,weights:{...state.settings.weights}};
  const share=Math.max(0,Math.min(1,Number(settings.baselineShare)/100));
  let i=0,shown=-1;
+ // Determine observed score extrema while already iterating the cells: no
+ // second costly pass, and no change to the numeric scores or CSV export.
+ const ranges=full ? {baseline:{min:Infinity,max:-Infinity},gap:{min:Infinity,max:-Infinity},combined:{min:Infinity,max:-Infinity}}
+                   : {combined:{min:Infinity,max:-Infinity}};
+ function track(key,value){
+  if(value===null || !Number.isFinite(value))return;
+  const range=ranges[key];range.min=Math.min(range.min,value);range.max=Math.max(range.max,value);
+ }
  function chunk(){
   if(revision!==updateRevision)return;
   const until=performance.now()+11;
@@ -347,10 +368,12 @@ function calculateRevision(revision){
    if(full){
     const r=computeScores(p,factors,settings);
     p.__base=r.baseline;p.__gap=r.gap;p.__combined=r.combined;p.__biv=r.biv;
+    track('baseline',r.baseline);track('gap',r.gap);track('combined',r.combined);
    }else{
     // Changing only the Combined balance does not need 26 factor evaluations.
     const b=p.__base,g=p.__gap;
     p.__combined=share===1?b:share===0?g:(b!==null&&g!==null?b*share+g*(1-share):null);
+    track('combined',p.__combined);
    }
   }
   if(revision!==updateRevision)return;
@@ -361,6 +384,11 @@ function calculateRevision(revision){
   if(full)needsFullScores=false;
   needsCombinedScore=false;
   scoresCalculated=true;
+  // Commit extrema only after an entire, non-cancelled revision has finished.
+  for(const [mode,range] of Object.entries(ranges)){
+   state.scoreRanges[mode]=Number.isFinite(range.min)&&Number.isFinite(range.max)?range:null;
+  }
+  legend();
   finishCalculation(revision);
  }
  requestAnimationFrame(chunk);
@@ -457,7 +485,7 @@ function updateSelection(){
   badge.textContent=value===null?'—':prettyScore(value);
   badge.classList.toggle('missing',value===null);
   badge.title=value===null?(selected?'Score unavailable for this cell':'Select a grid cell to inspect its factor scores'):
-     `${f.name}: ${prettyScore(value)} / 5`;
+     `${f.name}: ${prettyScore(value)} / 5 (absolute factor score)`;
   const c=value===null?null:colorForScore(value);
   badge.style.backgroundColor=c||'';
   badge.style.color=value===null?'':scoreTextColor(c);
@@ -506,8 +534,9 @@ function defaultWeights(factors){
 }
 function colorForScore(value){
  const val=Math.max(1,Math.min(5,Number(value)));
- const lower=Math.min(3,Math.floor(val-1));const t=val-(lower+1);
- const a=SCORE_STOPS[lower][1],b=SCORE_STOPS[lower+1][1];
+ const pos=Math.min(SCORE_STOPS.length-2,Math.floor((val-1)*2));
+ const [av,a]=SCORE_STOPS[pos], [bv,b]=SCORE_STOPS[pos+1];
+ const t=Math.max(0,Math.min(1,(val-av)/(bv-av)));
  function mix(i){return Math.round(parseInt(a.slice(i,i+2),16)*(1-t)+parseInt(b.slice(i,i+2),16)*t).toString(16).padStart(2,'0');}
  return '#'+mix(1)+mix(3)+mix(5);
 }
@@ -613,7 +642,12 @@ function legend(){
  if(state.mode==='bivariate'){
   el.innerHTML=`<h4>Baseline × Gap</h4><div class="bi-axis">Higher Gap ↑</div><div class="bi-grid">${[6,7,8,3,4,5,0,1,2].map(i=>`<span style="background:${BIVARIATE[i]}"></span>`).join('')}</div><div class="bi-axis">Baseline: lower → higher</div>`;
  }else{
-  el.innerHTML=`<h4>${state.mode==='baseline'?'Baseline':state.mode==='gap'?'Gap':'Combined'} score</h4><div class="legend-gradient"></div><div class="legend-labels"><span>1 · Low</span><span>3</span><span>5 · High</span></div>`;
+  const range=scoreRange(state.mode);
+  const spread=state.scoreRanges?.[state.mode];
+  const degenerate=spread && spread.max-spread.min<=1e-8;
+  const label=state.mode==='baseline'?'Baseline':state.mode==='gap'?'Gap':'Combined';
+  const minLabel=range.min.toFixed(2), midLabel=((range.min+range.max)/2).toFixed(2), maxLabel=range.max.toFixed(2);
+  el.innerHTML=`<h4>${label} score</h4><div class="legend-gradient" style="background:${scoreGradient()}"></div><div class="legend-labels"><span>${minLabel} · Low</span><span>${midLabel}</span><span>${maxLabel} · High</span></div><div class="legend-note">${degenerate?'All cells have the same score; fixed 1–5 colour scale shown.':spread?'Colours stretched to observed minimum and maximum.':'Fixed 1–5 scale while loading.'} Actual scores are unchanged.</div>`;
  }
 }
 async function fetchData(demo=false){
@@ -624,7 +658,7 @@ async function fetchData(demo=false){
  const [meta,geojson]=await Promise.all(responses.map(r=>r.json()));
  if(!Array.isArray(meta.factors)||!Array.isArray(geojson.features)||!geojson.features.length)throw new Error('Invalid or empty model data');
  for(const f of meta.factors){if(!f.id||!f.stage||!f.name)throw new Error('Incomplete factor metadata');}
- state.demo=demo;state.meta=meta;state.data=geojson;state.selectedId=null;mappedDataset=null;cachedBounds=null;scoresCalculated=false;needsFullScores=true;needsCombinedScore=true;
+ state.demo=demo;state.meta=meta;state.data=geojson;state.selectedId=null;mappedDataset=null;cachedBounds=null;scoresCalculated=false;needsFullScores=true;needsCombinedScore=true;state.scoreRanges={baseline:null,gap:null,combined:null};
  await loadReferences(meta);
  const prior=loadScenarioFromHash();
  state.defaults=defaultWeights(meta.factors);

@@ -5,7 +5,8 @@ export const BIVARIATE = [
   '#b9749e','#835a94','#28536f'
 ];
 export const SCORE_STOPS = [
-  [1,'#cb4c47'],[2,'#edb05b'],[3,'#f1e69c'],[4,'#99ce83'],[5,'#26885c']
+  [1,'#a60126'],[1.5,'#df412f'],[2,'#f99053'],[2.5,'#fed582'],
+  [3,'#fdfebc'],[3.5,'#c8e881'],[4,'#81c966'],[4.5,'#2a9d53'],[5,'#006837']
 ];
 export function currentStage(factor, settings){
   if(factor.movable && ((factor.category === 'Daily Needs' && settings.moveNeeds) ||

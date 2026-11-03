@@ -1,0 +1,1 @@
+Version 0.4.69: Web JavaScript unchanged from 0.4.68. To get real 1-m factor scores, run Tool 0 Prepare at 1 m in a new GDB, then Tools 1/2 and Tool 5 with a grid size >= 1 m. Metadata reports source_cell_size_m.
