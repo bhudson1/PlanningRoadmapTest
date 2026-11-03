@@ -3,7 +3,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f1f2f2"><title>Planning Opportunity | Scenario Explorer</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-<link rel="stylesheet" href="styles.css"></head>
+<link rel="stylesheet" href="styles.css?v=0472"></head>
 <body>
 <div id="shell">
   <main id="map-area" aria-label="Interactive planning opportunity map">
@@ -28,6 +28,11 @@
     <div id="bottomNote" class="map-footnote">Spreadsheet-default weights · Explore Baseline → Gap → Combined to build a scenario.</div>
   </main>
   <aside id="sidebar">
+    <nav class="workspace-tabs" role="tablist" aria-label="Explorer workspace">
+      <button id="workspaceScenarioTab" type="button" role="tab" aria-controls="scenarioWorkspace" aria-selected="true" class="workspace-tab active">◫ Scenario model</button>
+      <button id="workspaceAreasTab" type="button" role="tab" aria-controls="areaWorkspace" aria-selected="false" class="workspace-tab">⬡ Area analysis <span id="areaTabCount"></span></button>
+    </nav>
+    <div id="scenarioWorkspace" class="workspace-content" role="tabpanel" aria-labelledby="workspaceScenarioTab">
     <div class="sidebar-head"><div class="eyebrow">INTERACTIVE SCENARIO MODEL</div><h1>Explore planning opportunities</h1><p>Start with existing conditions (Baseline), explore gaps, then combine the two. Click a grid cell to see colour-coded factor scores next to their adjustable weights.</p></div>
     <nav class="analysis-tabs" role="tablist" aria-label="Analysis mode">
       <button id="tabBaseline" class="analysis-tab active" role="tab" aria-controls="panelBaseline" aria-selected="true" tabindex="0" data-tab="baseline"><span>1 · BASELINE</span><small>Existing readiness</small></button>
@@ -40,7 +45,7 @@
       <label class="switch-line"><span><strong>Daily Needs → Gap</strong><small>Restaurants, groceries, health services</small></span><input id="moveNeeds" type="checkbox" role="switch"></label>
       <label class="switch-line"><span><strong>Community Spaces → Gap</strong><small>Community centres and spaces</small></span><input id="moveCommunity" type="checkbox" role="switch"></label>
     </div>
-    <div class="metrics"><div><small>Baseline</small><strong id="metricBase">—</strong></div><div><small>Gap</small><strong id="metricGap">—</strong></div><div><small>Combined</small><strong id="metricCombined">—</strong></div></div>
+    <div class="metrics"><div class="metric-score" data-score-mode="baseline"><small>Baseline</small><strong id="metricBase">—</strong></div><div class="metric-score" data-score-mode="gap"><small>Gap</small><strong id="metricGap">—</strong></div><div class="metric-score" data-score-mode="combined"><small>Combined</small><strong id="metricCombined">—</strong></div></div>
     <div id="sidebarUpdateStatus" class="sidebar-update-status" role="status" aria-live="polite" aria-atomic="true">Load data to begin</div>
     <div class="sidebar-scroll">
       <details class="reference-panel" open>
@@ -91,9 +96,26 @@
       <section class="cell-section"><div class="section-eyebrow" id="selectedCellHeading">SELECTED GRID CELL</div><div class="cell-top"><h2 id="cellTitle">Choose a grid cell</h2><button id="clearCell" class="tiny" title="Clear selection">Clear</button></div><div id="cellDetail" class="muted">Click a grid cell to inspect its scores, housing composition and original source values.</div></section>
       <section class="data-notes"><h2>Data & methodology</h2><p id="dataNotes">No model loaded yet.</p><p id="resolutionNote">Scores are averaged from valid 10 m analysis pixels in each exported grid polygon. Browser scenarios reweight those scores without rerunning GIS analysis.</p><div class="actions"><button id="copyScenario" class="button-light">Copy scenario link</button><button id="exportScenario" class="button-light">Export scenario CSV</button><button id="resetWeights" class="button-light">Reset all</button></div></section>
     </div>
-    <footer class="sidebar-footer"><span id="cellCount">— cells</span><span id="gridSizeFooter">Grid · 1–5 scores</span></footer>
+    <footer class="sidebar-footer"><span id="cellCount">— cells</span><span id="gridSizeFooter">Grid · 1–5 scores</span><span class="app-version">v0.4.72</span></footer>
+    </div>
+    <div id="areaWorkspace" class="workspace-content area-workspace" role="tabpanel" aria-labelledby="workspaceAreasTab" hidden>
+      <div class="area-heading"><div class="eyebrow">CUSTOM PLANNING AREAS</div><h1>Draw & compare areas</h1><p>Draw polygons over the grid to calculate area-weighted average Baseline, Gap, and Combined scores using your current scenario.</p></div>
+      <div class="area-controls">
+        <button id="drawArea" type="button" class="button-primary">✎ Draw polygon</button>
+        <button id="finishArea" type="button" class="button-light" hidden>Finish</button>
+        <button id="cancelArea" type="button" class="button-light" hidden>Cancel</button>
+      </div>
+      <div id="areaDrawHint" class="area-draw-hint" role="status" aria-live="polite">Select “Draw polygon”, then click the map to place corners. Double-click or select Finish to close.</div>
+      <div class="area-section-heading"><strong>Saved areas</strong><span id="areaCount">0 polygons</span></div>
+      <div id="areaStatus" class="area-status" role="status" aria-live="polite">Load a grid and draw your first area.</div>
+      <div id="areasList" class="area-list" aria-label="Drawn planning area results"><div class="area-empty">No areas drawn yet. Areas remain visible when you switch back to Scenario.</div></div>
+      <div class="area-actions"><button id="exportAreasCSV" class="button-light" type="button" disabled>Export CSV</button><button id="exportAreasGeoJSON" class="button-light" type="button" disabled>Export GeoJSON</button><button id="clearAreas" class="button-light" type="button" disabled>Clear all</button></div>
+      <p class="area-method">Results use the exact geometric intersection of each drawn polygon and the exported study-area cells. Each cell’s score is weighted by its overlapping area. No-data scores are excluded separately for each metric. These are summaries of the exported grid; they do not recalculate the original ArcGIS rasters.</p>
+      <footer class="sidebar-footer"><span>Area-weighted means · Score range 1–5</span><span>v0.4.72</span></footer>
+    </div>
   </aside>
 </div>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script type="module" src="app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/dist/polygon-clipping.umd.min.js"></script>
+<script type="module" src="app.js?v=0472"></script>
 </body></html>

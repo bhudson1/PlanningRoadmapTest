@@ -1,4 +1,5 @@
 import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize} from './model.mjs';
+import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs';
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
@@ -23,6 +24,7 @@ let nativeLabelAnchor=null;
 let nativeBasemapVisibility=[];
 let vectorBasemapLoaded=false;
 let rasterFallbackUsed=false;
+let drawingArea=false;
 
 function addOverlayLayer(layer){
  // The symbol layers of the vector basemap stay ABOVE all thematic and
@@ -47,19 +49,38 @@ const referenceVisibility={};
 const referenceLabels={};
 let labelFrame=0;
 
-// Nine colour stops sampled from the user's ArcGIS Pro legend (low=red, high=green).
-// This is the only palette used by the map, its legend and the factor score chips.
-function scoreRange(mode){
+// Map scores keep their original 1–5 numeric meaning; ONLY their colour is
+// rescaled to the observed range of valid cells in the active scenario.
+// Render endpoints explicitly: the maximum-scoring cell must always be #006837.
+const LOW_COLOUR = SCORE_STOPS[0][1];
+const HIGH_COLOUR = SCORE_STOPS[SCORE_STOPS.length-1][1];
+const EMPTY_COLOUR = '#dce3e1';
+function observedRange(mode){
  const range=state.scoreRanges?.[mode];
- return range && Number.isFinite(range.min) && Number.isFinite(range.max) && range.max-range.min>1e-8
-   ? range : {min:1,max:5};
+ return range && Number.isFinite(range.min) && Number.isFinite(range.max) ? range : null;
 }
-function stretchedStops(mode){
- const {min,max}=scoreRange(mode);
- return SCORE_STOPS.flatMap(([score,hex])=>[min+(max-min)*(score-1)/4,hex]);
-}
+function displayRange(mode){return observedRange(mode)||{min:1,max:5};}
 function scoreGradient(){
  return `linear-gradient(to right,${SCORE_STOPS.map(([score,hex])=>`${hex} ${(score-1)*25}%`).join(',')})`;
+}
+function stretchedColourExpression(scoreExpression,mode){
+ const {min,max}=displayRange(mode);
+ const spread=max-min;
+ // A single unique score cannot have a meaningful relative gradient. It is
+ // nonetheless the (joint) maximum and receives the darkest green.
+ if(spread<=1e-10){return ['let','v',scoreExpression,
+    ['case',['<',['var','v'],1],EMPTY_COLOUR,HIGH_COLOUR]];}
+ // Map the observed min and max onto 0 and 1, then interpolate every colour
+ // stop of the nine-colour ramp. Explicit endpoint conditions also protect
+ // against tiny floating-point differences between JS and MapLibre evaluation.
+ const normalized=['/', ['-', ['var','v'],min],spread];
+ const stops=SCORE_STOPS.flatMap(([score,hex])=>[(score-1)/4,hex]);
+ const endTolerance=Math.max(1e-9,spread*1e-7);
+ return ['let','v',scoreExpression,['case',
+   ['<',['var','v'],1],EMPTY_COLOUR,
+   ['>=',['var','v'],max-endTolerance],HIGH_COLOUR,
+   ['<=',['var','v'],min+endTolerance],LOW_COLOUR,
+   ['interpolate',['linear'],normalized,...stops]]];
 }
 // MapLibre evaluates weights as a paint expression. The polygons and their
 // attributes are uploaded ONCE; adjusting weights never retransmits the
@@ -108,8 +129,7 @@ function fillExpression(mode){
       ['match',['+',['*',3,bucket(['var','g'])],bucket(['var','b'])],
         ...BIVARIATE.flatMap((hex,i)=>[i,hex]),'#dce3e1']]];
  }
- return ['let','v',mapScoreExpr(mode),['case',['<',['var','v'],1],'#dce3e1',
-  ['interpolate',['linear'],['var','v'],...stretchedStops(mode)]]];
+ return stretchedColourExpression(mapScoreExpr(mode),mode);
 }
 function createMap(){
   if(!window.maplibregl){$('loading').innerHTML='<h2>Map library unavailable</h2><p>Connect to the internet to load the MapLibre library, or vendor it for offline use.</p>';return;}
@@ -138,14 +158,15 @@ function createMap(){
     map.addLayer({id:'plain-gray-background',type:'background',paint:{'background-color':'#e5e8e8'}},baseLayers[0]?.id);
     setBasemapVisibility();
     map.addSource('cells',{type:'geojson',data:{type:'FeatureCollection',features:[]},generateId:false});
-    addOverlayLayer({id:'scores',type:'fill',source:'cells',paint:{'fill-color':fillExpression(state.mode),'fill-opacity':.92}});
+    addOverlayLayer({id:'scores',type:'fill',source:'cells',paint:{'fill-color':fillExpression(state.mode),'fill-opacity':1}});
     addOverlayLayer({id:'boundaries',type:'line',source:'cells',minzoom:12,paint:{'line-color':'#304a52','line-opacity':.26,'line-width':.4}});
     addOverlayLayer({id:'selection',type:'line',source:'cells',paint:{'line-color':'#102e3d','line-width':2.8,'line-opacity':1},filter:['==',['get','GRID_ID'],'__none__']});
-    map.on('click','scores',e=>{if(e.features?.length){state.selectedId=e.features[0].properties.GRID_ID;updateSelection();}});
+    map.on('click','scores',e=>{if(!drawingArea && e.features?.length){state.selectedId=e.features[0].properties.GRID_ID;updateSelection();}});
+    initializeAreaLayers();
     map.on('move',scheduleReferenceLabels);
     map.on('resize',scheduleReferenceLabels);
     map.on('mouseenter','scores',()=>map.getCanvas().style.cursor='pointer');
-    map.on('mouseleave','scores',()=>map.getCanvas().style.cursor='');
+    map.on('mouseleave','scores',()=>{if(!drawingArea)map.getCanvas().style.cursor='';});
     if(state.data)updateMap(true,scoresCalculated?updateRevision:null);
     renderReferenceLayers();
     scheduleReferenceLabels();
@@ -333,7 +354,7 @@ function setUpdateStatus(phase,message,percent=null){
 function scheduleUpdate(kind='full',immediate=false){
  if(!state.data||!state.meta)return;
  if(kind==='full')needsFullScores=true;
- if(kind==='full'||kind==='blend')needsCombinedScore=true;
+ if(kind==='full'||kind==='blend'){needsCombinedScore=true;areaResultsDirty=true;++areaRunRevision;if(drawnAreas.length)areaMessage('Recalculating scenario scores before area summaries…',true);}
  const revision=++updateRevision;
  revisionStartedAt=performance.now();
  clearTimeout(updateTimer);clearTimeout(mapRenderTimeout);
@@ -397,6 +418,7 @@ function finishCalculation(revision){
  if(revision!==updateRevision)return;
  updateSelection();
  updateWeightShares();
+ if(areaResultsDirty){areaResultsDirty=false;recalculateAreas();}
  setUpdateStatus('busy',state.mapLoaded?'Rendering updated map…':'Waiting for map to load…',null);
  if(state.mapLoaded)updateMap(false,revision);
 }
@@ -456,6 +478,7 @@ function updateSelection(){
  $('clearCell').style.visibility=selected?'visible':'hidden';
  const s=selected?{baseline:p.__base,gap:p.__gap,combined:p.__combined}:summarize(state.data.features);
  $('metricBase').textContent=prettyScore(s.baseline);$('metricGap').textContent=prettyScore(s.gap);$('metricCombined').textContent=prettyScore(s.combined);
+ for(const [mode,id] of [['baseline','metricBase'],['gap','metricGap'],['combined','metricCombined']])paintScoreCard($(id).parentElement,s[mode],mode);
  if(state.mapLoaded)map.setFilter('selection',['==',['get','GRID_ID'],selected?String(p.GRID_ID):'__none__']);
  const el=$('cellDetail');
  if(!selected){el.innerHTML='<div class="muted">Select a cell to see housing composition, factor scores and available original source values. The figures above are arithmetic averages of scored grid cells, not population-weighted statistics.</div>';}
@@ -477,8 +500,9 @@ function updateSelection(){
   }
   if(isFiniteNumber(p.PIPE_DWELLINGS))lines.push(`<p><b>Proposed dwelling units in source DA: ${Number(p.PIPE_DWELLINGS).toLocaleString(undefined,{maximumFractionDigits:0})}</b><br>Ratios are based on proposed dwelling units at the time of data collection in the dissemination area. This is not the number of homes within this ${Number(state.meta?.grid_size_m)||100} m cell.</p>`);
   if(lines.length===0)lines.push('<p>Housing share source fields are not available for this cell.</p>');
-  el.innerHTML=`<div class="score-comparison"><div><small>Baseline</small><strong>${prettyScore(p.__base)}</strong></div><div><small>Gap</small><strong>${prettyScore(p.__gap)}</strong></div><div><small>Combined</small><strong>${prettyScore(p.__combined)}</strong></div></div><details class="housing-details" open><summary>Housing composition & source context</summary>${lines.join('')}<p><small>Tenure shares overlap and do not necessarily total 100%.</small></p></details>`;
+  el.innerHTML=`<div class="score-comparison"><div data-mode="baseline"><small>Baseline</small><strong>${prettyScore(p.__base)}</strong></div><div data-mode="gap"><small>Gap</small><strong>${prettyScore(p.__gap)}</strong></div><div data-mode="combined"><small>Combined</small><strong>${prettyScore(p.__combined)}</strong></div></div><details class="housing-details" open><summary>Housing composition & source context</summary>${lines.join('')}<p><small>Tenure shares overlap and do not necessarily total 100%.</small></p></details>`;
  }
+ if(selected)for(const mode of ['baseline','gap','combined'])paintScoreCard(el.querySelector(`.score-comparison [data-mode="${mode}"]`),p['__'+(mode==='baseline'?'base':mode)],mode);
  for(const f of state.meta.factors){
   const badge=$('score_'+f.id);if(!badge)continue;
   const value=selected?adjustedFactorScore(p,f,state.settings):null;
@@ -543,6 +567,23 @@ function colorForScore(value){
 function scoreTextColor(hex){if(!hex)return '';
  const channels=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(x=>x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4));
  return channels[0]*.2126+channels[1]*.7152+channels[2]*.0722>.34?'#23373b':'#fff';
+}
+// The prominent Baseline, Gap and Combined values use the *same scenario-
+// relative min/max stretch* as the map. Factor badges remain absolute 1–5.
+function relativeScoreColor(value,mode){
+ if(value===null || !Number.isFinite(Number(value)))return null;
+ const range=displayRange(mode);
+ if(range.max-range.min<=1e-10)return HIGH_COLOUR;
+ const normalized=Math.max(0,Math.min(1,(Number(value)-range.min)/(range.max-range.min)));
+ return colorForScore(1+4*normalized);
+}
+function paintScoreCard(element,value,mode){
+ if(!element)return;
+ const color=relativeScoreColor(value,mode);
+ element.style.backgroundColor=color||'#edf1f1';
+ element.style.color=color?scoreTextColor(color):'#7c8d92';
+ element.style.borderColor=color||'#dce5e5';
+ element.title=color?`${mode} ${prettyScore(value)} / 5. Colour is relative to the observed ${mode} score range on the map.`:`No valid ${mode} score`;
 }
 function formatDelta(delta){return delta>0?`+${delta}`:String(delta);}
 function setWeight(f,raw){
@@ -642,12 +683,13 @@ function legend(){
  if(state.mode==='bivariate'){
   el.innerHTML=`<h4>Baseline × Gap</h4><div class="bi-axis">Higher Gap ↑</div><div class="bi-grid">${[6,7,8,3,4,5,0,1,2].map(i=>`<span style="background:${BIVARIATE[i]}"></span>`).join('')}</div><div class="bi-axis">Baseline: lower → higher</div>`;
  }else{
-  const range=scoreRange(state.mode);
-  const spread=state.scoreRanges?.[state.mode];
-  const degenerate=spread && spread.max-spread.min<=1e-8;
+  const range=displayRange(state.mode);
+  const spread=observedRange(state.mode);
+  const degenerate=spread && spread.max-spread.min<=1e-10;
   const label=state.mode==='baseline'?'Baseline':state.mode==='gap'?'Gap':'Combined';
   const minLabel=range.min.toFixed(2), midLabel=((range.min+range.max)/2).toFixed(2), maxLabel=range.max.toFixed(2);
-  el.innerHTML=`<h4>${label} score</h4><div class="legend-gradient" style="background:${scoreGradient()}"></div><div class="legend-labels"><span>${minLabel} · Low</span><span>${midLabel}</span><span>${maxLabel} · High</span></div><div class="legend-note">${degenerate?'All cells have the same score; fixed 1–5 colour scale shown.':spread?'Colours stretched to observed minimum and maximum.':'Fixed 1–5 scale while loading.'} Actual scores are unchanged.</div>`;
+  const ramp=degenerate?`linear-gradient(to right,${HIGH_COLOUR},${HIGH_COLOUR})`:scoreGradient();
+  el.innerHTML=`<h4>${label} score · relative colour stretch</h4><div class="legend-gradient" style="background:${ramp}"></div><div class="legend-labels"><span>${minLabel} · Low</span><span>${midLabel}</span><span>${maxLabel} · High</span></div><div class="legend-extremes"><span><i style="background:${LOW_COLOUR}"></i> Lowest</span><span><i style="background:${HIGH_COLOUR}"></i> Highest = darkest green</span></div><div class="legend-note">${degenerate?'All valid cells have the same score, so all are dark green.':spread?'Lowest and highest valid cells use the exact red and dark-green endpoints.':'Temporary 1–5 scale shown while scores load.'} Actual scores are unchanged.</div>`;
  }
 }
 async function fetchData(demo=false){
@@ -658,6 +700,7 @@ async function fetchData(demo=false){
  const [meta,geojson]=await Promise.all(responses.map(r=>r.json()));
  if(!Array.isArray(meta.factors)||!Array.isArray(geojson.features)||!geojson.features.length)throw new Error('Invalid or empty model data');
  for(const f of meta.factors){if(!f.id||!f.stage||!f.name)throw new Error('Incomplete factor metadata');}
+ clearAllAreas(true);
  state.demo=demo;state.meta=meta;state.data=geojson;state.selectedId=null;mappedDataset=null;cachedBounds=null;scoresCalculated=false;needsFullScores=true;needsCombinedScore=true;state.scoreRanges={baseline:null,gap:null,combined:null};
  await loadReferences(meta);
  const prior=loadScenarioFromHash();
@@ -695,6 +738,214 @@ function resetStage(stage){
  for(const f of state.meta.factors)if(currentStage(f,state.settings)===stage)state.settings.weights[f.id]=state.defaults[f.id]??0;
  buildWeights();scheduleUpdate('full');
 }
+// -------- User-drawn Area Analysis (visual overlay, never a scoring input) --------
+const drawnAreas=[];
+let areaIdCounter=0, selectedAreaId=null, drawVertices=[],drawPointer=null;
+let areaRunRevision=0,areaResultsDirty=false;
+function areaMessage(message,busy=false){
+ const el=$('areaStatus');if(el){el.textContent=message;el.dataset.busy=String(busy);}
+}
+function activeWorkspace(next){
+ const area=next==='areas';
+ $('scenarioWorkspace').hidden=area;$('areaWorkspace').hidden=!area;
+ $('workspaceScenarioTab').classList.toggle('active',!area);
+ $('workspaceAreasTab').classList.toggle('active',area);
+ $('workspaceScenarioTab').setAttribute('aria-selected',String(!area));
+ $('workspaceAreasTab').setAttribute('aria-selected',String(area));
+ if(map && state.mapLoaded)map.resize();
+}
+function coordsEqual(a,b){return a&&b&&Math.abs(a[0]-b[0])<1e-9&&Math.abs(a[1]-b[1])<1e-9;}
+function linesIntersect(a,b,c,d){
+ const orient=(p,q,r)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);
+ const o1=orient(a,b,c),o2=orient(a,b,d),o3=orient(c,d,a),o4=orient(c,d,b);
+ return o1*o2<0&&o3*o4<0;
+}
+function isSimplePolygon(vertices){
+ const n=vertices.length;
+ for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+  if(j===i+1||(i===0&&j===n-1))continue;
+  if(linesIntersect(vertices[i],vertices[(i+1)%n],vertices[j],vertices[(j+1)%n]))return false;
+ }
+ return true;
+}
+function initializeAreaLayers(){
+ if(!map.getSource('user-areas'))map.addSource('user-areas',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+ if(!map.getSource('area-draft'))map.addSource('area-draft',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+ addOverlayLayer({id:'user-areas-fill',type:'fill',source:'user-areas',paint:{'fill-color':'#297c96','fill-opacity':.14}});
+ addOverlayLayer({id:'user-areas-outline',type:'line',source:'user-areas',paint:{'line-color':['case',['==',['get','area_id'],selectedAreaId||'__none__'],'#07445d','#367f96'],'line-width':['case',['==',['get','area_id'],selectedAreaId||'__none__'],3.5,2.2],'line-opacity':.95}});
+ addOverlayLayer({id:'area-draft-fill',type:'fill',source:'area-draft',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#266f92','fill-opacity':.16}});
+ addOverlayLayer({id:'area-draft-line',type:'line',source:'area-draft',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#07445d','line-width':3,'line-dasharray':[2,1]}});
+ addOverlayLayer({id:'area-draft-vertices',type:'circle',source:'area-draft',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#fff','circle-stroke-color':'#07516c','circle-stroke-width':2,'circle-radius':5}});
+ map.on('click',onAreaMapClick);
+ map.on('dblclick',onAreaDoubleClick);
+ map.on('mousemove',onAreaMouseMove);
+ refreshAreaMap();
+}
+function refreshAreaMap(){
+ if(!state.mapLoaded || !map?.getSource('user-areas'))return;
+ const features=drawnAreas.map(a=>({type:'Feature',properties:{area_id:a.id,name:a.name},geometry:a.geometry}));
+ map.getSource('user-areas').setData({type:'FeatureCollection',features});
+ if(map.getLayer('user-areas-outline')){
+  const isSelected=['==',['get','area_id'],selectedAreaId||'__none__'];
+  map.setPaintProperty('user-areas-outline','line-color',['case',isSelected,'#07445d','#367f96']);
+  map.setPaintProperty('user-areas-outline','line-width',['case',isSelected,3.5,2.2]);
+ }
+ refreshDraftMap();
+}
+function refreshDraftMap(){
+ if(!state.mapLoaded||!map?.getSource('area-draft'))return;
+ const features=[];
+ if(drawingArea&&drawVertices.length){
+  for(const coord of drawVertices)features.push({type:'Feature',properties:{},geometry:{type:'Point',coordinates:coord}});
+  const coords=[...drawVertices];
+  if(drawPointer && !coordsEqual(drawPointer,coords[coords.length-1]))coords.push(drawPointer);
+  if(coords.length>=2)features.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:coords}});
+  if(drawVertices.length>=3)features.push({type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[[...drawVertices,drawVertices[0]]]}});
+ }
+ map.getSource('area-draft').setData({type:'FeatureCollection',features});
+}
+function onAreaMapClick(event){
+ if(!drawingArea)return;
+ // Browser double-click usually dispatches clicks first. Deduplicate the
+ // repeated final vertex; the actual completion is handled by dblclick.
+ const coord=[event.lngLat.lng,event.lngLat.lat];
+ if(!coordsEqual(coord,drawVertices[drawVertices.length-1]))drawVertices.push(coord);
+ drawPointer=null;refreshDraftMap();
+ $('finishArea').disabled=drawVertices.length<3;
+ $('areaDrawHint').textContent=`${drawVertices.length} corner${drawVertices.length===1?'':'s'} placed · Double-click to finish · Backspace undoes a corner · Esc cancels.`;
+}
+function onAreaDoubleClick(event){if(!drawingArea)return;event.preventDefault();finishDrawingArea();}
+function onAreaMouseMove(event){if(!drawingArea)return;drawPointer=[event.lngLat.lng,event.lngLat.lat];refreshDraftMap();}
+function beginDrawingArea(){
+ if(!state.data||!state.mapLoaded){areaMessage('Load the planning grid and map before drawing.');return;}
+ activeWorkspace('areas');drawingArea=true;drawVertices=[];drawPointer=null;
+ if(map&&state.mapLoaded){map.doubleClickZoom.disable();map.getCanvas().style.cursor='crosshair';}
+ $('drawArea').hidden=true;$('finishArea').hidden=false;$('finishArea').disabled=true;$('cancelArea').hidden=false;
+ $('areaDrawHint').textContent='Click at least three corners on the map; double-click or select Finish to close.';
+ refreshDraftMap();
+}
+function endDrawingMode(){
+ drawingArea=false;drawVertices=[];drawPointer=null;
+ $('drawArea').hidden=false;$('finishArea').hidden=true;$('cancelArea').hidden=true;
+ $('areaDrawHint').textContent='Click Draw polygon to add another area. Double-click finishes; Escape cancels.';
+ if(map&&state.mapLoaded){map.doubleClickZoom.enable();map.getCanvas().style.cursor='';}
+ refreshDraftMap();
+}
+function finishDrawingArea(){
+ if(!drawingArea||drawVertices.length<3){areaMessage('Place at least three corners before finishing.');return;}
+ // A user-drawn polygon with crossing lines is ambiguous for averages.
+ if(!isSimplePolygon(drawVertices)){areaMessage('This polygon crosses itself. Undo the last corner or redraw a simple outline.');return;}
+ const geom={type:'Polygon',coordinates:[[...drawVertices,drawVertices[0]]]};
+ const box=bboxOfGeometry(geom);
+ if(!box || (box[2]-box[0])*(box[3]-box[1])<1e-13){areaMessage('The polygon is too small to analyze. Zoom in and draw a larger area.');return;}
+ const area={id:'area-'+(++areaIdCounter),name:'Area '+areaIdCounter,geometry:geom,result:null};
+ drawnAreas.push(area);selectedAreaId=area.id;
+ endDrawingMode();refreshAreaMap();renderAreaResults();recalculateAreas();
+}
+function clearAllAreas(silent=false){
+ ++areaRunRevision;drawnAreas.length=0;selectedAreaId=null;areaIdCounter=0;
+ if(drawingArea)endDrawingMode();
+ if(state.mapLoaded)refreshAreaMap();
+ renderAreaResults();if(!silent)areaMessage('All drawn areas cleared.');
+}
+function deleteArea(id){
+ const index=drawnAreas.findIndex(a=>a.id===id);if(index<0)return;
+ drawnAreas.splice(index,1);if(selectedAreaId===id)selectedAreaId=drawnAreas[0]?.id||null;
+ ++areaRunRevision;refreshAreaMap();renderAreaResults();
+ if(drawnAreas.length)recalculateAreas();else areaMessage('Draw a polygon to calculate area scores.');
+}
+function zoomToArea(id){
+ const area=drawnAreas.find(x=>x.id===id);if(!area)return;
+ selectedAreaId=id;refreshAreaMap();renderAreaResults();
+ const box=bboxOfGeometry(area.geometry);
+ if(box && state.mapLoaded)map.fitBounds([[box[0],box[1]],[box[2],box[3]]],{padding:65,duration:450,maxZoom:17});
+}
+function areaScoreHTML(value,mode){
+ const hex=relativeScoreColor(value,mode);const style=hex?`background:${hex};color:${scoreTextColor(hex)};`:'background:#eef2f2;color:#87969c;';
+ const title=`${mode} score, colour relative to current map extent of valid scores`;
+ return `<div class="area-score-chip" style="${style}" title="${escapeHTML(title)}"><small>${mode==='baseline'?'Baseline':mode==='gap'?'Gap':'Combined'}</small><strong>${prettyScore(value)}</strong></div>`;
+}
+function renderAreaResults(){
+ $('areaCount').textContent=`${drawnAreas.length} polygon${drawnAreas.length===1?'':'s'}`;
+ $('areaTabCount').textContent=drawnAreas.length?String(drawnAreas.length):'';
+ for(const id of ['exportAreasCSV','exportAreasGeoJSON','clearAreas'])$(id).disabled=!drawnAreas.length;
+ const list=$('areasList');list.replaceChildren();
+ if(!drawnAreas.length){list.innerHTML='<div class="area-empty">No areas drawn yet. The map stays interactive while you edit scenario weights.</div>';return;}
+ for(const area of drawnAreas){
+  const card=document.createElement('article');card.className='area-result-card'+(area.id===selectedAreaId?' selected':'');
+  const result=area.result;
+  const km2=multiPolygonAreaM2(geometryAsMultiPolygon(area.geometry),(bboxOfGeometry(area.geometry)[1]+bboxOfGeometry(area.geometry)[3])/2)/1e6;
+  card.innerHTML=`<div class="area-result-header"><input class="area-name-input" aria-label="Name of ${escapeHTML(area.name)}" value="${escapeHTML(area.name)}" maxlength="80"><button class="tiny area-zoom" title="Zoom to polygon">Zoom</button><button class="tiny area-delete" title="Remove polygon">✕</button></div>
+  <div class="area-result-figures">${['baseline','gap','combined'].map(mode=>areaScoreHTML(result?.scores[mode]??null,mode)).join('')}</div>
+  <div class="area-result-meta">${km2<1?`${(km2*100).toFixed(2)} ha`:`${km2.toFixed(2)} km²`} drawn · ${result?`${(result.overlapM2/10000).toFixed(2)} ha in analysis grid · ${result.touched.toLocaleString()} overlapping cells`:'Calculating area averages…'}</div>
+  ${result?`<div class="area-coverage">Valid scored area: Baseline ${result.coverage.baseline.toFixed(0)}% · Gap ${result.coverage.gap.toFixed(0)}% · Combined ${result.coverage.combined.toFixed(0)}%</div>`:''}`;
+  card.querySelector('.area-name-input').addEventListener('change',e=>{area.name=e.target.value.trim().slice(0,80)||area.name;refreshAreaMap();});
+  card.querySelector('.area-zoom').addEventListener('click',()=>zoomToArea(area.id));
+  card.querySelector('.area-delete').addEventListener('click',()=>deleteArea(area.id));
+  list.append(card);
+ }
+}
+function recalculateAreas(){
+ ++areaRunRevision;
+ const run=areaRunRevision;
+ if(!drawnAreas.length||!state.data||!scoresCalculated)return;
+ if(!window.polygonClipping?.intersection){areaMessage('Area analysis requires the polygon-clipping library. Check internet access and reload.');return;}
+ for(const area of drawnAreas)area.result=null;
+ renderAreaResults();
+ const features=state.data.features;const total=drawnAreas.length;let ai=0,i=0,acc=null;
+ const started=performance.now();
+ areaMessage(`Calculating ${total} polygon${total===1?'':'s'}…`,true);
+ function chunk(){
+  if(run!==areaRunRevision)return;
+  const deadline=performance.now()+12;
+  try{
+   while(ai<total && performance.now()<deadline){
+    const area=drawnAreas[ai];if(!acc)acc=newAreaAccumulator(area.geometry);
+    while(i<features.length && performance.now()<deadline)addCellToAccumulator(acc,features[i++],window.polygonClipping);
+    if(i>=features.length){area.result=finishAreaAccumulator(acc);i=0;acc=null;ai++;renderAreaResults();}
+   }
+  }catch(error){areaMessage(`Area calculation error: ${error.message}`);console.error(error);return;}
+  if(run!==areaRunRevision)return;
+  if(ai<total){areaMessage(`Measuring overlap… ${Math.floor(100*(ai+i/Math.max(1,features.length))/total)}%`,true);requestAnimationFrame(chunk);}
+  else{const seconds=((performance.now()-started)/1000).toFixed(1);areaMessage(`✓ ${total} area${total===1?'':'s'} updated · ${seconds} s`);}
+ }
+ requestAnimationFrame(chunk);
+}
+function exportAreaSummary(){
+ if(!drawnAreas.length)return;
+ const rows=[['Area','Baseline','Gap','Combined','Drawn area (ha)','Grid overlap area (ha)','Overlapping cells','Baseline valid area %','Gap valid area %','Combined valid area %']];
+ for(const a of drawnAreas){const b=bboxOfGeometry(a.geometry);const full=multiPolygonAreaM2(geometryAsMultiPolygon(a.geometry),(b[1]+b[3])/2);
+  const r=a.result;rows.push([a.name,r?.scores.baseline??'',r?.scores.gap??'',r?.scores.combined??'',full/1e4,r?r.overlapM2/1e4:'',r?.touched??'',r?.coverage.baseline??'',r?.coverage.gap??'',r?.coverage.combined??'']);}
+ const quoted=rows.map(row=>row.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+ downloadBlob(new Blob([quoted],{type:'text/csv;charset=utf-8'}),'planning-opportunity-area-scores.csv');
+}
+function exportAreaPolygons(){
+ if(!drawnAreas.length)return;
+ const fc={type:'FeatureCollection',features:drawnAreas.map(a=>({type:'Feature',properties:{name:a.name,
+  baseline:a.result?.scores.baseline??null,gap:a.result?.scores.gap??null,combined:a.result?.scores.combined??null,
+  valid_baseline_pct:a.result?.coverage.baseline??null,valid_gap_pct:a.result?.coverage.gap??null,
+  valid_combined_pct:a.result?.coverage.combined??null,grid_overlap_m2:a.result?.overlapM2??null,
+  grid_cells:a.result?.touched??null},geometry:a.geometry}))};
+ downloadBlob(new Blob([JSON.stringify(fc,null,2)],{type:'application/geo+json'}),'planning-opportunity-areas.geojson');
+}
+function initializeAreaControls(){
+ $('workspaceScenarioTab').addEventListener('click',()=>activeWorkspace('scenario'));
+ $('workspaceAreasTab').addEventListener('click',()=>activeWorkspace('areas'));
+ $('drawArea').addEventListener('click',beginDrawingArea);
+ $('finishArea').addEventListener('click',finishDrawingArea);
+ $('cancelArea').addEventListener('click',endDrawingMode);
+ $('clearAreas').addEventListener('click',()=>clearAllAreas());
+ $('exportAreasCSV').addEventListener('click',exportAreaSummary);
+ $('exportAreasGeoJSON').addEventListener('click',exportAreaPolygons);
+ window.addEventListener('keydown',event=>{
+  if(!drawingArea||['INPUT','TEXTAREA'].includes(event.target?.tagName))return;
+  if(event.key==='Escape'){event.preventDefault();endDrawingMode();}
+  if(event.key==='Backspace'||event.key==='Delete'){event.preventDefault();drawVertices.pop();refreshDraftMap();$('finishArea').disabled=drawVertices.length<3;}
+  if(event.key==='Enter' && drawVertices.length>=3){event.preventDefault();finishDrawingArea();}
+ });
+ renderAreaResults();
+}
+
 function setHandlers(){
  $('demoBtn').addEventListener('click',()=>fetchData(true).catch(e=>setError(e.message)));
  $('retryBtn').addEventListener('click',()=>fetchData(false).catch(e=>setError(e.message)));
@@ -725,6 +976,7 @@ function setHandlers(){
   catch(e){window.prompt('Copy this scenario URL',url);}
  });
  $('exportScenario').addEventListener('click',exportCSV);
+ initializeAreaControls();
 }
 setHandlers();createMap();
 import('./opendata.mjs').then(({initOpenDataWidget})=>initOpenDataWidget({getMap:()=>map,getMapLoaded:()=>state.mapLoaded,getLabelAnchor:()=>nativeLabelAnchor})).catch(e=>console.warn('Vancouver Open Data panel unavailable',e));
