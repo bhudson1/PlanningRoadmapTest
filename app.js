@@ -1,6 +1,6 @@
-import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize,hasScenarioAdjustment} from './model.mjs?v=0480';
-import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0480';
-import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0480';
+import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize,hasScenarioAdjustment} from './model.mjs?v=0481';
+import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0481';
+import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0481';
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
@@ -179,6 +179,42 @@ function bivariateFillExpression(){
    ['any',['<',['var','b'],1],['<',['var','g'],1]],EMPTY_COLOUR,
    ['match',code,...BIVARIATE4.flatMap((hex,i)=>[i,hex]),EMPTY_COLOUR]]];
 }
+// Preserve the meaning of original TEXT categories. The exporter encodes
+// these alphabetically (e.g. Fire Flow: High=1, Low=2, Medium=3). Those
+// internal IDs must NEVER be treated as ordinal measurements.
+function categoryOrder(label){
+ const text=String(label??'').trim().toLowerCase().replace(/[\s_-]+/g,' ');
+ const orders={'very low':0,'low':1,'medium low':1.5,'moderate low':1.5,
+  'moderate':2,'medium':2,'medium high':2.5,'moderate high':2.5,
+  'high':3,'very high':4};
+ return Object.prototype.hasOwnProperty.call(orders,text)?orders[text]:null;
+}
+function previewCategories(f,features,field){
+ const lookup=f.native_codes;
+ if(!lookup||typeof lookup!=='object'||Array.isArray(lookup))return [];
+ const codes=new Map();
+ for(const [code,label] of Object.entries(lookup)){
+  const id=Number(code);
+  if(!Number.isInteger(id)||typeof label!=='string'||!label.trim())continue;
+  codes.set(id,{code:id,label:label.trim(),count:0,order:categoryOrder(label)});
+ }
+ if(!codes.size)return [];
+ for(const feature of features){
+  const value=feature.properties?.[field];
+  if(value===null||value===undefined||value==='')continue;
+  const id=Number(value);
+  const category=codes.get(id);
+  if(category)category.count++;
+ }
+ const result=[...codes.values()].filter(x=>x.count>0);
+ if(!result.length)return [];
+ const ordered=result.every(x=>x.order!==null);
+ if(ordered)result.sort((a,b)=>a.order-b.order||a.label.localeCompare(b.label));
+ else result.sort((a,b)=>a.label.localeCompare(b.label,undefined,{numeric:true,sensitivity:'base'}));
+ const last=result.length-1;
+ return result.map((item,i)=>({...item,
+  color:FACTOR_COLOURS[last?Math.round(i*4/last):2],ordered}));
+}
 function factorPreviewStats(f){
  const key=f.id;
  if(factorStatsCache.has(key))return factorStatsCache.get(key);
@@ -197,13 +233,19 @@ function factorPreviewStats(f){
  track(rawField,false);
  const raw=valid>0;
  if(!raw){field=f.id;track(field,true);}
- const result={factor:f,field,raw,valid,min,max};
+ const categories=raw?previewCategories(f,features,field):[];
+ const result={factor:f,field,raw,valid,min,max,categorical:categories.length>0,categories};
  factorStatsCache.set(key,result);
  return result;
 }
 function factorPreviewExpression(stats){
  if(!stats||!stats.valid)return EMPTY_COLOUR;
  const v=['to-number',['get',stats.field],-1000000];
+ // Coded text categories use discrete matching, not continuous interpolation
+ // through their arbitrary numeric storage codes.
+ if(stats.categorical){
+  return ['match',v,...stats.categories.flatMap(c=>[c.code,c.color]),EMPTY_COLOUR];
+ }
  const valid=['all',['has',stats.field],['!=',['get',stats.field],null],['>=',v,stats.min],['<=',v,stats.max]];
  if(stats.max-stats.min<=1e-10)return ['case',valid,FACTOR_COLOURS[3],EMPTY_COLOUR];
  const stops=FACTOR_COLOURS.flatMap((hex,i)=>[stats.min+(stats.max-stats.min)*i/4,hex]);
@@ -278,7 +320,7 @@ function requestFactorHover(f){
    hoveredFactor=f;
    const stats=factorPreviewStats(f);
    $('factorPreviewBanner').hidden=false;
-   $('factorPreviewBanner').textContent=`Factor preview · ${f.name} · ${stats.raw?'Original source data':'1–5 factor score'} · ${stats.valid.toLocaleString()} cells`;
+   $('factorPreviewBanner').textContent=`Factor preview · ${f.name} · ${stats.categorical?'Original source categories':stats.raw?'Original source data':'1–5 factor score'} · ${stats.valid.toLocaleString()} cells`;
    $('mapContext').textContent='INPUT FACTOR PREVIEW';
    legend();paintMapColors();
  },130);
@@ -725,7 +767,15 @@ function legend(){
   const label=stats.raw?'Original source value':'Factor score (1–5)';
   const min=stats.valid?Number(stats.min).toLocaleString(undefined,{maximumFractionDigits:2}):'—';
   const max=stats.valid?Number(stats.max).toLocaleString(undefined,{maximumFractionDigits:2}):'—';
-  el.innerHTML=`<h4>${escapeHTML(hoveredFactor.name)}</h4><div class="legend-gradient" style="background:linear-gradient(to right,${FACTOR_COLOURS.join(',')})"></div><div class="legend-labels"><span>${min} · Low</span><span>${max} · High</span></div><div class="legend-note">${label}. Blue palette is independent of scenario scoring. Grey = missing data. Move away to restore the map.</div>`;
+  if(stats.categorical){
+   const rows=stats.categories.map(category=>`<div class="factor-category-row"><i style="background:${category.color}" aria-hidden="true"></i><span>${escapeHTML(category.label)}</span><small>${category.count.toLocaleString()} cells</small></div>`).join('');
+   const note=stats.categories.every(c=>c.ordered)
+    ? 'Original categories in meaning-based low-to-high order. Numeric storage codes do not control colours.'
+    : 'Original named categories. Swatches distinguish classes; they are not a numeric low-to-high scale.';
+   el.innerHTML=`<h4>${escapeHTML(hoveredFactor.name)}</h4><div class="factor-category-legend">${rows}</div><div class="legend-note">${note} Grey = missing data. Move away to restore the map.</div>`;
+  }else{
+   el.innerHTML=`<h4>${escapeHTML(hoveredFactor.name)}</h4><div class="legend-gradient" style="background:linear-gradient(to right,${FACTOR_COLOURS.join(',')})"></div><div class="legend-labels"><span>${min} · Low</span><span>${max} · High</span></div><div class="legend-note">${label}. Blue palette is independent of scenario scoring. Grey = missing data. Move away to restore the map.</div>`;
+  }
   return;
  }
  if(state.changeOverlayVisible&&!hoveredFactor){

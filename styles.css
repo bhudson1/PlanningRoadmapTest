@@ -333,3 +333,9 @@
 
 /* Selected-cell detail mirrors the always-visible-after-edit score deltas. */
 .cell-score-delta{display:block;margin-top:5px;font-size:10px;font-weight:800;font-variant-numeric:tabular-nums;color:inherit;opacity:.88;line-height:1.3}
+
+/* v0.4.81: categorical factor legend uses source-category names, not raw storage codes. */
+.factor-category-legend{display:grid;gap:6px;min-width:185px;max-height:260px;overflow-y:auto}
+.factor-category-row{display:grid;grid-template-columns:15px minmax(0,1fr) auto;align-items:center;gap:7px;color:#314d5d;font-size:11px;line-height:1.4}
+.factor-category-row i{display:block;width:15px;height:15px;border:1px solid #365b692d;border-radius:3px}
+.factor-category-row small{font-size:9px;color:#6c838c;white-space:nowrap}
