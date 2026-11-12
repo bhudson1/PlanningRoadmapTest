@@ -68,7 +68,9 @@ export function newAreaAccumulator(areaGeometry){
   const box=bboxOfGeometry(areaGeometry);
   return {geometry:areaGeometry,bbox:box,latitude:box?(box[1]+box[3])/2:49.25,
     overlapM2:0,touched:0,values:{baseline:0,gap:0,combined:0},
-    scoredArea:{baseline:0,gap:0,combined:0},scoredCells:{baseline:0,gap:0,combined:0}};
+    scoredArea:{baseline:0,gap:0,combined:0},scoredCells:{baseline:0,gap:0,combined:0},
+    defaultValues:{baseline:0,gap:0,combined:0},
+    defaultScoredArea:{baseline:0,gap:0,combined:0}};
 }
 export function addCellToAccumulator(acc,feature,clipper){
   if(!acc?.bbox||!feature?.geometry||!boxesOverlap(acc.bbox,bboxOfGeometry(feature.geometry)))return;
@@ -80,14 +82,26 @@ export function addCellToAccumulator(acc,feature,clipper){
     if(value===null||value===undefined||!Number.isFinite(Number(value))||Number(value)<1||Number(value)>5)continue;
     acc.values[key]+=area*Number(value);acc.scoredArea[key]+=area;acc.scoredCells[key]++;
   }
+  // Fixed workbook defaults are accumulated using the SAME intersection
+  // area as the live scenario. Missing current and default values are tracked
+  // independently so we never invent zero scores for NoData cells.
+  const defaultKeys={baseline:'__defaultBase',gap:'__defaultGap',combined:'__defaultCombined'};
+  for(const key of AREA_SCORE_KEYS){
+    const value=feature.properties?.[defaultKeys[key]];
+    if(value===null||value===undefined||!Number.isFinite(Number(value))||Number(value)<1||Number(value)>5)continue;
+    acc.defaultValues[key]+=area*Number(value);
+    acc.defaultScoredArea[key]+=area;
+  }
 }
 export function finishAreaAccumulator(acc){
-  const scores={};const coverage={};
+  const scores={},defaults={},deltas={},coverage={};
   for(const key of AREA_SCORE_KEYS){
     scores[key]=acc.scoredArea[key]>0?acc.values[key]/acc.scoredArea[key]:null;
+    defaults[key]=acc.defaultScoredArea[key]>0?acc.defaultValues[key]/acc.defaultScoredArea[key]:null;
+    deltas[key]=scores[key]===null||defaults[key]===null?null:scores[key]-defaults[key];
     coverage[key]=acc.overlapM2>0?100*acc.scoredArea[key]/acc.overlapM2:0;
   }
-  return {scores,coverage,overlapM2:acc.overlapM2,touched:acc.touched,
+  return {scores,defaults,deltas,coverage,overlapM2:acc.overlapM2,touched:acc.touched,
     scoredCells:{...acc.scoredCells},scoredArea:{...acc.scoredArea}};
 }
 export function computeAreaScores(geometry,features,clipper){

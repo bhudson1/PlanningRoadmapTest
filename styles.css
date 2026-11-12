@@ -214,6 +214,9 @@
 .area-score-chip{padding:11px 8px;border-radius:7px;display:flex;flex-direction:column;gap:3px;min-width:0}
 .area-score-chip small{font-size:10px;font-weight:800;opacity:.88}
 .area-score-chip strong{font-size:22px;line-height:1.25;font-weight:850;font-variant-numeric:tabular-nums}
+.area-score-delta{display:flex;align-items:baseline;gap:3px;flex-wrap:wrap;font-size:12px;line-height:1.2;font-weight:800;font-variant-numeric:tabular-nums;margin-top:5px;white-space:normal}
+.area-score-delta em{font-size:9px;font-style:normal;font-weight:650;opacity:.88}
+
 .area-result-meta{color:#597781;font-size:11px;margin-top:12px;line-height:1.5;font-weight:700}
 .area-coverage{font-size:10px;color:#7a8e96;line-height:1.5;margin-top:5px}
 .area-actions{display:flex;flex-wrap:wrap;gap:7px;padding:10px 23px 0}
@@ -252,3 +255,17 @@
 .bi-x-range{display:flex;justify-content:space-between;font-size:9px;color:#526a72;margin-top:3px}
 .bi-x-caption{margin:5px 0 0 35px;font-size:10px;color:#526a72}
 @media(max-width:700px){.bi-grid.bi-grid-3{grid-template-columns:repeat(3,27px);grid-template-rows:repeat(3,23px)}.bi-y-axis{height:69px}}
+
+
+/* v0.4.75 — independent Area Analysis map layer chooser. */
+.area-layer-panel{margin:5px 23px 13px;padding:12px;border:1px solid #cadedd;border-radius:9px;background:#f7faf9;min-width:0}
+.area-layer-panel legend{font-weight:800;font-size:13px;color:#214652;padding:0 5px}
+.area-layer-panel legend span{color:#258987;margin-right:4px}
+.area-layer-panel p{margin:0 0 11px;font-size:11px;color:#5b7681;line-height:1.5}
+.area-layer-panel small{display:block;margin-top:9px;font-size:10px;line-height:1.4;color:#69818a}
+.area-view-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.area-view-option{display:flex;align-items:center;gap:7px;padding:9px 10px;border:1px solid #d5e4e4;border-radius:7px;background:#fff;font-size:12px;color:#345763;font-weight:700;cursor:pointer;min-width:0}
+.area-view-option input{margin:0;accent-color:#197d7b;cursor:pointer;flex:none}
+.area-view-option:has(input:checked){border-color:#198a86;background:#e6f5f2;color:#164e50;box-shadow:inset 0 0 0 1px #198a8638}
+.area-view-option:focus-within{outline:2px solid #258987;outline-offset:2px}
+@media(max-width:700px){.area-layer-panel{margin:5px 16px 13px}}

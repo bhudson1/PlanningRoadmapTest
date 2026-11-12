@@ -1,10 +1,10 @@
-import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize} from './model.mjs?v=0474';
-import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs';
-import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0474';
+import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize} from './model.mjs?v=0476';
+import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0476';
+import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0476';
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
-const state={data:null,meta:null,defaults:{},selectedId:null,mode:'baseline',mapLoaded:false,demo:false,scoreRanges:{baseline:null,gap:null,combined:null},
+const state={data:null,meta:null,defaults:{},selectedId:null,mode:'baseline',scenarioMode:'baseline',areaView:'baseline',workspace:'scenario',mapLoaded:false,demo:false,scoreRanges:{baseline:null,gap:null,combined:null},
   settings:{weights:{},moveNeeds:false,moveCommunity:false,baselineShare:50}};
 // An API-key-free vector basemap lets MapLibre place actual street and place
 // labels above the analysis cells. Raster OSM is a fallback only when the
@@ -172,13 +172,32 @@ function fillExpression(mode){
  return stretchedColourExpression(mapScoreExpr(mode),mode);
 }
 function paintMapColors(){
- if(state.mapLoaded&&map.getLayer('scores'))map.setPaintProperty('scores','fill-color',fillExpression(state.mode));
+ if(!state.mapLoaded||!map.getLayer('scores'))return;
+ const show=state.mode!=='none';
+ // When hidden, leave the source and area polygons intact; changing the view
+ // must not re-upload GeoJSON or recalculate scenario/area scores.
+ map.setLayoutProperty('scores','visibility',show?'visible':'none');
+ if(map.getLayer('selection'))map.setLayoutProperty('selection','visibility',show?'visible':'none');
+ if(show)map.setPaintProperty('scores','fill-color',fillExpression(state.mode));
 }
+function mapModeLabel(mode){return mode==='none'?'ANALYSIS GRID HIDDEN':mode==='combined'?'BASELINE × GAP':mode.toUpperCase()+' SCORE';}
+function setMapView(next){
+ if(!['baseline','gap','combined','none'].includes(next))return;
+ // A factor preview must end even when both workspaces display the same mode.
+ cancelFactorHover();
+ if(state.mode===next)return;
+ state.mode=next;
+ $('mapContext').textContent=mapModeLabel(next);
+ legend();
+ if(state.data)scheduleUpdate('paint');
+ else paintMapColors();
+}
+
 function cancelFactorHover(){
  clearTimeout(hoverTimer);
  if(!hoveredFactor)return;
  hoveredFactor=null;$('factorPreviewBanner').hidden=true;legend();paintMapColors();
- $('mapContext').textContent=state.mode==='combined'?'BASELINE × GAP':state.mode.toUpperCase()+' SCORE';
+ $('mapContext').textContent=mapModeLabel(state.mode);
 }
 function requestFactorHover(f){
  clearTimeout(hoverTimer);
@@ -274,6 +293,9 @@ function calculateRevision(revision){
  const factors=state.meta.factors;
  // Snapshot the scenario: a change mid-calculation cancels this run.
  const settings={...state.settings,weights:{...state.settings.weights}};
+ // Fixed spreadsheet-default reference: original factor routing, workbook
+ // weights and a 50/50 Combined balance, independent of the live scenario.
+ const benchmarkSettings={weights:state.defaults,moveNeeds:false,moveCommunity:false,baselineShare:50};
  const share=Math.max(0,Math.min(1,Number(settings.baselineShare)/100));
  let i=0,shown=-1;
  // Determine observed score extrema while already iterating the cells: no
@@ -289,6 +311,14 @@ function calculateRevision(revision){
   const until=performance.now()+11;
   while(i<features.length && performance.now()<until){
    const p=features[i++].properties;
+   // Calculate the benchmark once per grid cell per loaded dataset. Blend
+   // changes and later weight edits reuse these original scores unchanged.
+   if(!Object.prototype.hasOwnProperty.call(p,'__defaultBase')){
+    const ref=computeScores(p,factors,benchmarkSettings);
+    p.__defaultBase=ref.baseline;
+    p.__defaultGap=ref.gap;
+    p.__defaultCombined=ref.combined;
+   }
    if(full){
     const r=computeScores(p,factors,settings);
     p.__base=r.baseline;p.__gap=r.gap;p.__combined=r.combined;p.__biv=r.biv;
@@ -584,21 +614,18 @@ function updateWeightShares(){
 }
 function activateTab(next){
  if(!['baseline','gap','combined'].includes(next))return;
- state.mode=next;
+ state.scenarioMode=next;
  for(const tab of ['baseline','gap','combined']){
   const active=tab===next;const cap=tab[0].toUpperCase()+tab.slice(1);
   const button=$('tab'+cap),panel=$('panel'+cap);
   button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;
   panel.hidden=!active;
  }
- cancelFactorHover();
- $('mapContext').textContent=next==='baseline'?'BASELINE SCORE':next==='gap'?'GAP SCORE':'BASELINE × GAP';
- legend();
- if(state.data)scheduleUpdate('paint');
+ if(state.workspace==='scenario')setMapView(next);
 }
 function legend(){
- const el=$('legend');el.hidden=!state.data;
- if(!state.data)return;
+ const el=$('legend');el.hidden=!state.data||state.mode==='none';
+ if(!state.data||state.mode==='none')return;
  if(hoveredFactor){
   const stats=factorPreviewStats(hoveredFactor);
   const label=stats.raw?'Original source value':'Factor score (1–5)';
@@ -661,7 +688,10 @@ async function fetchData(demo=false){
  $('resolutionNote').textContent=`Scores are averaged from valid ${sourceSize} m analysis pixels in each ${gridSize} m grid polygon. Browser scenarios reweight those scores without rerunning GIS analysis.`;
  $('dataNotes').textContent=`Factor weights default to the source workbook. Export created ${meta.created_utc?new Date(meta.created_utc).toLocaleString():'unknown date'}. Housing shares are fractions (0–1), displayed as percentages. Original workbook targets are embedded in metadata. Scenario changes do not alter the underlying exported data.`;
  $('bottomNote').textContent=demo?'SYNTHETIC DEMO — not Vancouver planning results':`${Number(meta.grid_size_m)||100} m grid · Browser-side scoring · Zero GIS recomputation`;
- buildWeights();activateTab('baseline');scheduleUpdate('full',true);updateMap(true);
+ state.areaView='baseline';state.scenarioMode='baseline';state.mode='baseline';
+ $('mapContext').textContent=mapModeLabel('baseline');
+ const viewChoice=document.querySelector('input[name=areaGridView][value=baseline]');if(viewChoice)viewChoice.checked=true;
+ buildWeights();activateTab('baseline');legend();scheduleUpdate('full',true);updateMap(true);
 }
 function updateSplit(){const b=Number($('split').value);$('splitBase').textContent=b+'%';$('splitGap').textContent=(100-b)+'%';$('combinedFormula').textContent=`Combined = ${b}% Baseline + ${100-b}% Gap`;}
 function loadScenarioFromHash(){try{if(location.hash.startsWith('#scenario='))return JSON.parse(decodeURIComponent(location.hash.slice(10)));}catch(e){}return null;}
@@ -687,11 +717,15 @@ function areaMessage(message,busy=false){
 }
 function activeWorkspace(next){
  const area=next==='areas';
+ state.workspace=area?'areas':'scenario';
  $('scenarioWorkspace').hidden=area;$('areaWorkspace').hidden=!area;
  $('workspaceScenarioTab').classList.toggle('active',!area);
  $('workspaceAreasTab').classList.toggle('active',area);
  $('workspaceScenarioTab').setAttribute('aria-selected',String(!area));
  $('workspaceAreasTab').setAttribute('aria-selected',String(area));
+ // Each workspace has an independent map-view selection. The area workspace
+ // can hide the grid entirely without hiding the user's drawn polygons.
+ setMapView(area?state.areaView:state.scenarioMode);
  if(map && state.mapLoaded)map.resize();
 }
 function coordsEqual(a,b){return a&&b&&Math.abs(a[0]-b[0])<1e-9&&Math.abs(a[1]-b[1])<1e-9;}
@@ -824,10 +858,20 @@ function zoomToArea(id){
  const box=bboxOfGeometry(area.geometry);
  if(box && state.mapLoaded)map.fitBounds([[box[0],box[1]],[box[2],box[3]]],{padding:65,duration:450,maxZoom:17});
 }
-function areaScoreHTML(value,mode){
+function areaDeltaLabel(value,benchmark){
+ if(!isFiniteNumber(value)||!isFiniteNumber(benchmark))return {label:'Δ —',difference:null,description:'Default comparison unavailable'};
+ const difference=Number(value)-Number(benchmark);
+ // Display a true signed difference in score points (not percent). Avoid
+ // a misleading -0.00 from floating-point drift.
+ const rounded=Math.abs(difference)<0.005?0:difference;
+ return {label:rounded>0?`+${rounded.toFixed(2)}`:rounded<0?`−${Math.abs(rounded).toFixed(2)}`:'±0.00',
+   difference,description:`Default ${Number(benchmark).toFixed(2)}; current ${Number(value).toFixed(2)}`};
+}
+function areaScoreHTML(value,mode,benchmark){
  const hex=relativeScoreColor(value,mode);const style=hex?`background:${hex};color:${scoreTextColor(hex)};`:'background:#eef2f2;color:#87969c;';
- const title=`${mode} score, colour relative to current scenario score range across the exported grid`;
- return `<div class="area-score-chip" style="${style}" title="${escapeHTML(title)}"><small>${mode==='baseline'?'Baseline':mode==='gap'?'Gap':'Combined'}</small><strong>${prettyScore(value)}</strong></div>`;
+ const delta=areaDeltaLabel(value,benchmark);
+ const title=`${mode} score, colour relative to current scenario range. ${delta.description}. Change = current area-weighted mean minus original spreadsheet-default area-weighted mean.`;
+ return `<div class="area-score-chip" style="${style}" title="${escapeHTML(title)}"><small>${mode==='baseline'?'Baseline':mode==='gap'?'Gap':'Combined'}</small><strong>${prettyScore(value)}</strong><span class="area-score-delta" aria-label="Change from default: ${escapeHTML(delta.label)}">${escapeHTML(delta.label)} <em>vs default</em></span></div>`;
 }
 function renderAreaResults(){
  $('areaCount').textContent=`${drawnAreas.length} polygon${drawnAreas.length===1?'':'s'}`;
@@ -840,7 +884,7 @@ function renderAreaResults(){
   const result=area.result;
   const km2=multiPolygonAreaM2(geometryAsMultiPolygon(area.geometry),(bboxOfGeometry(area.geometry)[1]+bboxOfGeometry(area.geometry)[3])/2)/1e6;
   card.innerHTML=`<div class="area-result-header"><input class="area-name-input" aria-label="Name of ${escapeHTML(area.name)}" value="${escapeHTML(area.name)}" maxlength="80"><button class="tiny area-zoom" title="Zoom to polygon">Zoom</button><button class="tiny area-delete" title="Remove polygon">✕</button></div>
-  <div class="area-result-figures">${['baseline','gap','combined'].map(mode=>areaScoreHTML(result?.scores[mode]??null,mode)).join('')}</div>
+  <div class="area-result-figures">${['baseline','gap','combined'].map(mode=>areaScoreHTML(result?.scores[mode]??null,mode,result?.defaults?.[mode]??null)).join('')}</div>
   <div class="area-result-meta">${km2<1?`${(km2*100).toFixed(2)} ha`:`${km2.toFixed(2)} km²`} drawn · ${result?`${(result.overlapM2/10000).toFixed(2)} ha in analysis grid · ${result.touched.toLocaleString()} overlapping cells`:'Calculating area averages…'}</div>
   ${result?`<div class="area-coverage">Valid scored area: Baseline ${result.coverage.baseline.toFixed(0)}% · Gap ${result.coverage.gap.toFixed(0)}% · Combined ${result.coverage.combined.toFixed(0)}%</div>`:''}`;
   card.querySelector('.area-name-input').addEventListener('change',e=>{area.name=e.target.value.trim().slice(0,80)||area.name;refreshAreaMap();});
@@ -877,9 +921,9 @@ function recalculateAreas(){
 }
 function exportAreaSummary(){
  if(!drawnAreas.length)return;
- const rows=[['Area','Baseline','Gap','Combined','Drawn area (ha)','Grid overlap area (ha)','Overlapping cells','Baseline valid area %','Gap valid area %','Combined valid area %']];
+ const rows=[['Area','Baseline','Gap','Combined','Drawn area (ha)','Grid overlap area (ha)','Overlapping cells','Baseline valid area %','Gap valid area %','Combined valid area %','Default Baseline','Default Gap','Default Combined','Baseline change vs default','Gap change vs default','Combined change vs default']];
  for(const a of drawnAreas){const b=bboxOfGeometry(a.geometry);const full=multiPolygonAreaM2(geometryAsMultiPolygon(a.geometry),(b[1]+b[3])/2);
-  const r=a.result;rows.push([a.name,r?.scores.baseline??'',r?.scores.gap??'',r?.scores.combined??'',full/1e4,r?r.overlapM2/1e4:'',r?.touched??'',r?.coverage.baseline??'',r?.coverage.gap??'',r?.coverage.combined??'']);}
+  const r=a.result;rows.push([a.name,r?.scores.baseline??'',r?.scores.gap??'',r?.scores.combined??'',full/1e4,r?r.overlapM2/1e4:'',r?.touched??'',r?.coverage.baseline??'',r?.coverage.gap??'',r?.coverage.combined??'',r?.defaults?.baseline??'',r?.defaults?.gap??'',r?.defaults?.combined??'',r?.deltas?.baseline??'',r?.deltas?.gap??'',r?.deltas?.combined??'']);}
  const quoted=rows.map(row=>row.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
  downloadBlob(new Blob([quoted],{type:'text/csv;charset=utf-8'}),'planning-opportunity-area-scores.csv');
 }
@@ -887,6 +931,8 @@ function exportAreaPolygons(){
  if(!drawnAreas.length)return;
  const fc={type:'FeatureCollection',features:drawnAreas.map(a=>({type:'Feature',properties:{name:a.name,
   baseline:a.result?.scores.baseline??null,gap:a.result?.scores.gap??null,combined:a.result?.scores.combined??null,
+  default_baseline:a.result?.defaults?.baseline??null,default_gap:a.result?.defaults?.gap??null,default_combined:a.result?.defaults?.combined??null,
+  baseline_delta:a.result?.deltas?.baseline??null,gap_delta:a.result?.deltas?.gap??null,combined_delta:a.result?.deltas?.combined??null,
   valid_baseline_pct:a.result?.coverage.baseline??null,valid_gap_pct:a.result?.coverage.gap??null,
   valid_combined_pct:a.result?.coverage.combined??null,grid_overlap_m2:a.result?.overlapM2??null,
   grid_cells:a.result?.touched??null},geometry:a.geometry}))};
@@ -895,6 +941,13 @@ function exportAreaPolygons(){
 function initializeAreaControls(){
  $('workspaceScenarioTab').addEventListener('click',()=>activeWorkspace('scenario'));
  $('workspaceAreasTab').addEventListener('click',()=>activeWorkspace('areas'));
+ for(const input of document.querySelectorAll('input[name=areaGridView]')){
+  input.addEventListener('change',()=>{
+   if(!input.checked)return;
+   state.areaView=input.value;
+   if(state.workspace==='areas')setMapView(state.areaView);
+  });
+ }
  $('drawArea').addEventListener('click',beginDrawingArea);
  $('drawMode').addEventListener('change',()=>{drawMode=$('drawMode').value;});
  $('finishArea').addEventListener('click',finishDrawingArea);
