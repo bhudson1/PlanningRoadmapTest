@@ -222,3 +222,33 @@
 .area-method{padding:13px 23px 24px;font-size:10px;line-height:1.6;color:#69808b;margin:0}
 .area-workspace .sidebar-footer{margin-top:auto;flex:none}
 @media(max-width:700px){.area-heading{padding:15px 16px 6px}.area-controls{padding:8px 16px}.area-draw-hint{margin:6px 16px 12px}.area-section-heading{padding:12px 16px 9px}.area-status{margin:0 16px 12px}.area-list{padding:0 16px 10px}.area-actions{padding:10px 16px}.area-method{padding:13px 16px 20px}.metrics .metric-score{padding:8px 7px}.workspace-tab{font-size:11px}}
+
+/* v0.4.73 — native labels, no internal grid borders; sticky weight totals */
+#baselineWeightStatus,#gapWeightStatus{position:sticky;top:0;z-index:11;box-shadow:0 4px 10px #183b4520}
+#baselineWeightStatus.off-target{box-shadow:0 4px 12px #c982313d}
+.factor-hover-target{cursor:help;border-radius:5px;outline-offset:2px}
+.factor-hover-target:hover,.factor-hover-target:focus-visible{background:#e6f4f8;box-shadow:0 0 0 4px #e6f4f8}
+.factor-hover-target:focus-visible{outline:2px solid #277c97}
+.factor-preview-banner{position:absolute;z-index:5;top:155px;left:22px;max-width:min(420px,calc(100% - 40px));padding:10px 13px;background:#eaf5fc;border:1px solid #6ca9c8;border-radius:7px;box-shadow:0 4px 15px #123a4628;color:#154a69;font-size:11px;font-weight:800;line-height:1.5;pointer-events:none}
+.factor-preview-banner[hidden]{display:none}
+
+.area-mode-label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:750;color:#426470;white-space:nowrap}
+.area-mode-label select{min-width:105px;padding:7px 5px;border:1px solid #cbdede;border-radius:6px;background:white;font-size:11px}
+.area-controls button{flex:1 1 auto}
+.orthogonal-option{display:flex;align-items:center;gap:7px;margin:0 23px 7px;font-size:11px;color:#53767c;line-height:1.35}
+.orthogonal-option input{accent-color:#237c86}
+@media(max-width:700px){.factor-preview-banner{top:148px;left:7px;font-size:10px;max-width:calc(100% - 14px)}.orthogonal-option{margin:0 16px 7px}}
+
+/* v0.4.74 — ArcGIS reference yellow/cyan 3×3 bivariate matrix */
+.bi-key{display:flex;align-items:center;gap:7px;font-size:10px;color:#415962;margin-top:4px;white-space:nowrap}
+.bi-key-ramp{display:block;flex:none;width:66px;height:11px}
+.bi-base-ramp{background:linear-gradient(to right,#faffe3,#fffca6,#fff44d,#ffeb00)}
+.bi-gap-ramp{background:linear-gradient(to right,#faffe3,#a7f7e4,#53eee5,#00e6e6)}
+.bi-matrix-layout{display:flex;gap:8px;align-items:stretch;margin-top:10px}
+.bi-y-axis{height:78px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;font-size:9px;color:#526a72}
+.bi-y-axis strong{font-size:10px;font-weight:700}
+.bi-grid.bi-grid-3{grid-template-columns:repeat(3,33px);grid-template-rows:repeat(3,26px);gap:0;margin:0}
+.bi-grid.bi-grid-3 span{border:0;border-radius:0}
+.bi-x-range{display:flex;justify-content:space-between;font-size:9px;color:#526a72;margin-top:3px}
+.bi-x-caption{margin:5px 0 0 35px;font-size:10px;color:#526a72}
+@media(max-width:700px){.bi-grid.bi-grid-3{grid-template-columns:repeat(3,27px);grid-template-rows:repeat(3,23px)}.bi-y-axis{height:69px}}

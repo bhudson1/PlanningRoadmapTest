@@ -1,8 +1,10 @@
 // Pure, dependency-free scoring shared by UI and verification tests.
 export const BIVARIATE = [
-  '#e3e8e7','#a6d9c7','#4ca993',
-  '#d8b2c4','#a4b7b4','#548e90',
-  '#b9749e','#835a94','#28536f'
+  // Rows: Gap low → high; columns: Baseline low → high.
+  // 3×3 reduction sampled from the supplied ArcGIS Pro yellow/cyan 4×4 ramp.
+  '#faffe3', '#fff87a', '#ffeb00',
+  '#7df2e4', '#82d1ad', '#86b076',
+  '#00e6e6', '#2cb0cf', '#007bcc'
 ];
 export const SCORE_STOPS = [
   [1,'#a60126'],[1.5,'#df412f'],[2,'#f99053'],[2.5,'#fed582'],
