@@ -311,3 +311,10 @@
 @media(max-width:700px){.map-layer-widget[open]{max-height:calc(49dvh - 117px);overflow-y:auto}}
 
 /* v0.4.78: Baseline and Gap score indicators use map-matching red/green stretch; Combined retains 4x4 bivariate. */
+
+/* v0.4.79: Combined defaults to score-gradient; 4×4 map-only option. */
+.map-layer-options .map-layer-suboption{margin:-1px 0 3px 17px;padding:4px 3px 4px 7px;min-height:26px;color:#57747d;font-weight:600;font-size:10px;border-left:2px solid #c9ddda}
+.map-layer-options .map-layer-suboption:focus-within{outline:2px solid #258987;outline-offset:1px}
+.layer-combined{background:linear-gradient(125deg,#a60126,#fdfebc,#006837)}
+.layer-bivariate{background:linear-gradient(125deg,#ffeb00,#a8e4b7,#007bcc)}
+.weight-delta[hidden]{display:none!important}
