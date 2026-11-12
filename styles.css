@@ -269,3 +269,43 @@
 .area-view-option:has(input:checked){border-color:#198a86;background:#e6f5f2;color:#164e50;box-shadow:inset 0 0 0 1px #198a8638}
 .area-view-option:focus-within{outline:2px solid #258987;outline-offset:2px}
 @media(max-width:700px){.area-layer-panel{margin:5px 16px 13px}}
+
+/* v0.4.77: 4×4 ArcGIS Pro bivariate matrix and map-overlay layer widget. */
+.bi-grid.bi-grid-4{display:grid;grid-template-columns:repeat(4,29px);grid-template-rows:repeat(4,23px);gap:0;margin:0}
+.bi-grid.bi-grid-4 span{border:0;border-radius:0}
+.bi-y-axis{height:92px}
+.bi-key-ramp.bi-base-ramp{background:linear-gradient(to right,#faffe3,#fffca6,#fff44d,#ffeb00)}
+.bi-key-ramp.bi-gap-ramp{background:linear-gradient(to right,#faffe3,#a7f7e4,#53eee5,#00e6e6)}
+@media(max-width:700px){.bi-grid.bi-grid-4{grid-template-columns:repeat(4,27px);grid-template-rows:repeat(4,22px)}.bi-y-axis{height:88px}}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.factor-title{cursor:default}
+.factor-preview-link{display:inline-flex;align-items:center;gap:4px;margin:4px 0 1px;padding:2px 0;background:none;border:0;border-bottom:1px dotted #277992;color:#267b90;font-size:10px;font-weight:750;text-align:left}
+.factor-preview-link:hover,.factor-preview-link:focus-visible{background:#e6f4f8;color:#125f76;border-bottom-style:solid;outline-offset:2px;cursor:pointer}
+.factor-preview-link::before{content:'◉';font-size:10px}
+.map-layer-widget{position:absolute;z-index:6;right:16px;top:71px;width:220px;background:#fffffff7;border:1px solid #d0dcdd;border-radius:9px;box-shadow:0 8px 24px #16333e25;color:#294854;font-size:11px;overflow:visible}
+.map-layer-widget>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:7px;padding:10px 11px;user-select:none;min-height:39px}
+.map-layer-widget>summary::-webkit-details-marker{display:none}
+.map-layer-widget>summary:focus-visible{outline:2px solid #238a8b;outline-offset:3px}
+.map-layer-widget>summary:after{content:'⌄';font-size:14px;color:#527784;transform:rotate(0deg)}
+.map-layer-widget[open]>summary:after{transform:rotate(180deg)}
+.map-layer-widget>summary strong{font-size:12px}
+.map-layer-widget>summary small{margin-left:auto;color:#71878b;font-weight:600;font-size:9px;white-space:nowrap}
+.layer-list-icon{display:inline-grid;place-items:center;background:#e2efef;border-radius:4px;width:24px;height:24px;color:#1d6572;font-size:20px}
+.map-layer-content{padding:10px 11px 12px;border-top:1px solid #e2ebea}
+.map-layer-group-heading{display:flex;align-items:center;justify-content:space-between;gap:5px;font-size:11px;color:#214852;font-weight:850;margin:1px 0 7px}
+.map-layer-group-heading span{font-size:9px;color:#7b8b8e;font-weight:600;text-align:right}
+.map-layer-options{display:flex;flex-direction:column;gap:2px;margin-bottom:14px}
+.map-layer-options label,.map-layer-toggle{display:flex;gap:8px;align-items:center;min-height:30px;padding:6px 3px;border-radius:5px;cursor:pointer;font-weight:650}
+.map-layer-options label:hover,.map-layer-toggle:hover{background:#edf6f6}
+.map-layer-options input,.map-layer-toggle input{accent-color:#238882;margin:0;flex:none}
+.map-layer-swatch{width:13px;height:13px;flex:none;border:1px solid #819b9d55;border-radius:2px}
+.layer-baseline{background:linear-gradient(125deg,#a60126,#fdfebc,#006837)}
+.layer-gap{background:linear-gradient(125deg,#a60126,#fdfebc,#006837)}
+.layer-combined{background:linear-gradient(125deg,#ffeb00,#a8e4b7,#007bcc)}
+.layer-hidden{background:repeating-linear-gradient(45deg,#f2f4f5 0 3px,#abb6b8 3px 4px)}
+.layer-drawn{background:#a8e4b7;border:2px solid #3e8091}
+.map-layer-content p{color:#768c92;font-size:9px;line-height:1.5;margin:9px 0 0}
+@media(max-width:1020px){.map-layer-widget{right:12px;top:151px}}
+@media(max-width:700px){.map-layer-widget{top:109px;right:7px;width:197px;font-size:10px}.map-layer-widget>summary{padding:7px 8px}.map-layer-widget>summary small{font-size:8px}.map-layer-content{padding:8px}}
+
+@media(max-width:700px){.map-layer-widget[open]{max-height:calc(49dvh - 117px);overflow-y:auto}}

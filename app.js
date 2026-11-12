@@ -1,10 +1,10 @@
-import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize} from './model.mjs?v=0476';
-import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0476';
-import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0476';
+import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize} from './model.mjs?v=0477';
+import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0477';
+import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0477';
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
-const state={data:null,meta:null,defaults:{},selectedId:null,mode:'baseline',scenarioMode:'baseline',areaView:'baseline',workspace:'scenario',mapLoaded:false,demo:false,scoreRanges:{baseline:null,gap:null,combined:null},
+const state={data:null,meta:null,defaults:{},selectedId:null,mode:'baseline',scenarioMode:'baseline',areaView:'baseline',areaPolygonsVisible:true,workspace:'scenario',mapLoaded:false,demo:false,scoreRanges:{baseline:null,gap:null,combined:null},
   settings:{weights:{},moveNeeds:false,moveCommunity:false,baselineShare:50}};
 // An API-key-free vector basemap lets MapLibre place actual street and place
 // labels above the analysis cells. Raster OSM is a fallback only when the
@@ -48,7 +48,9 @@ const LOW_COLOUR = SCORE_STOPS[0][1];
 const HIGH_COLOUR = SCORE_STOPS[SCORE_STOPS.length-1][1];
 const EMPTY_COLOUR = '#dce3e1';
 // Palette contains 9 sampled ArcGIS colours, ordered Gap low→high × Baseline low→high.
-const BIVARIATE3=BIVARIATE;
+const BIVARIATE4=BIVARIATE;
+const BASELINE_AXIS=['#faffe3','#fffca6','#fff44d','#ffeb00'];
+const GAP_AXIS=['#faffe3','#a7f7e4','#53eee5','#00e6e6'];
 const FACTOR_COLOURS=['#e9f5fb','#b9dfec','#74b5cf','#2d88b0','#084b78'];
 let hoveredFactor=null,hoverTimer=0;
 const factorStatsCache=new Map();
@@ -117,23 +119,32 @@ function mapScoreExpr(mode){
  }
  return null;
 }
-function bivariateClassExpr(value,mode){
- // Equal thirds of the OBSERVED score range, independently for both axes.
- // Values at/above the observed maximum fall in class 2; ties are class 1.
+function classifyBivariate(value,mode){
+ if(value===null||value===undefined||!Number.isFinite(Number(value)))return -1;
  const {min,max}=displayRange(mode);
- const spread=max-min;
- if(spread<=1e-10)return 1;
+ if(max-min<=1e-10)return 1; // A uniform axis has no distinguishable quartiles.
+ return Math.max(0,Math.min(3,Math.floor((Number(value)-min)/(max-min)*4)));
+}
+function bivariateColor(baseline,gap){
+ const b=classifyBivariate(baseline,'baseline'),g=classifyBivariate(gap,'gap');
+ return b<0||g<0?null:BIVARIATE4[g*4+b];
+}
+function bivariateClassExpr(value,mode){
+ // Equal quarters of the observed range, independently for each axis.
+ const {min,max}=displayRange(mode),span=max-min;
+ if(span<=1e-10)return 1;
  return ['case',
-   ['<',value,min+spread/3],0,
-   ['<',value,min+2*spread/3],1,
-   2];
+   ['<',value,min+span/4],0,
+   ['<',value,min+span/2],1,
+   ['<',value,min+span*3/4],2,
+   3];
 }
 function bivariateFillExpression(){
  const b=stageExpression('Baseline'),g=stageExpression('Gap');
- const code=['+', ['*',3,bivariateClassExpr(['var','g'],'gap')],bivariateClassExpr(['var','b'],'baseline')];
+ const code=['+', ['*',4,bivariateClassExpr(['var','g'],'gap')],bivariateClassExpr(['var','b'],'baseline')];
  return ['let','b',b,'g',g,['case',
    ['any',['<',['var','b'],1],['<',['var','g'],1]],EMPTY_COLOUR,
-   ['match',code,...BIVARIATE3.flatMap((hex,i)=>[i,hex]),EMPTY_COLOUR]]];
+   ['match',code,...BIVARIATE4.flatMap((hex,i)=>[i,hex]),EMPTY_COLOUR]]];
 }
 function factorPreviewStats(f){
  const key=f.id;
@@ -181,12 +192,31 @@ function paintMapColors(){
  if(show)map.setPaintProperty('scores','fill-color',fillExpression(state.mode));
 }
 function mapModeLabel(mode){return mode==='none'?'ANALYSIS GRID HIDDEN':mode==='combined'?'BASELINE × GAP':mode.toUpperCase()+' SCORE';}
+function syncMapLayerWidget(){
+ const choice=document.querySelector(`input[name="mapGridView"][value="${state.mode}"]`);
+ if(choice)choice.checked=true;
+ const areas=$('showAreaScenarios');if(areas)areas.checked=state.areaPolygonsVisible;
+ const summary=$('mapLayerSummary');if(summary){
+  const named=state.mode==='none'?'Grid hidden':state.mode[0].toUpperCase()+state.mode.slice(1);
+  summary.textContent=`${named} · Areas ${state.areaPolygonsVisible?'on':'off'}`;
+ }
+ const count=$('layerAreaCount');if(count)count.textContent=`${drawnAreas.length} saved`;
+}
+function setAreaPolygonVisibility(){
+ if(!state.mapLoaded||!map)return;
+ const visibility=state.areaPolygonsVisible?'visible':'none';
+ for(const id of ['user-areas-fill','user-areas-outline']){
+  if(map.getLayer(id))map.setLayoutProperty(id,'visibility',visibility);
+ }
+}
+
 function setMapView(next){
  if(!['baseline','gap','combined','none'].includes(next))return;
  // A factor preview must end even when both workspaces display the same mode.
  cancelFactorHover();
- if(state.mode===next)return;
+ if(state.mode===next){syncMapLayerWidget();return;}
  state.mode=next;
+ syncMapLayerWidget();
  $('mapContext').textContent=mapModeLabel(next);
  legend();
  if(state.data)scheduleUpdate('paint');
@@ -243,6 +273,8 @@ function createMap(){
     addOverlayLayer({id:'selection',type:'line',source:'cells',paint:{'line-color':'#102e3d','line-width':2.8,'line-opacity':1},filter:['==',['get','GRID_ID'],'__none__']});
     map.on('click','scores',e=>{if(!drawingArea && e.features?.length){state.selectedId=e.features[0].properties.GRID_ID;updateSelection();}});
     initializeAreaLayers();
+    setAreaPolygonVisibility();
+    syncMapLayerWidget();
     map.on('mouseenter','scores',()=>map.getCanvas().style.cursor='pointer');
     map.on('mouseleave','scores',()=>{if(!drawingArea)map.getCanvas().style.cursor='';});
     if(state.data)updateMap(true,scoresCalculated?updateRevision:null);
@@ -419,7 +451,7 @@ function updateSelection(){
  $('clearCell').style.visibility=selected?'visible':'hidden';
  const s=selected?{baseline:p.__base,gap:p.__gap,combined:p.__combined}:summarize(state.data.features);
  $('metricBase').textContent=prettyScore(s.baseline);$('metricGap').textContent=prettyScore(s.gap);$('metricCombined').textContent=prettyScore(s.combined);
- for(const [mode,id] of [['baseline','metricBase'],['gap','metricGap'],['combined','metricCombined']])paintScoreCard($(id).parentElement,s[mode],mode);
+ for(const [mode,id] of [['baseline','metricBase'],['gap','metricGap'],['combined','metricCombined']])paintScoreCard($(id).parentElement,s,mode);
  if(state.mapLoaded)map.setFilter('selection',['==',['get','GRID_ID'],selected?String(p.GRID_ID):'__none__']);
  const el=$('cellDetail');
  if(!selected){el.innerHTML='<div class="muted">Select a cell to see housing composition, factor scores and available original source values. The figures above are arithmetic averages of scored grid cells, not population-weighted statistics.</div>';}
@@ -443,7 +475,7 @@ function updateSelection(){
   if(lines.length===0)lines.push('<p>Housing share source fields are not available for this cell.</p>');
   el.innerHTML=`<div class="score-comparison"><div data-mode="baseline"><small>Baseline</small><strong>${prettyScore(p.__base)}</strong></div><div data-mode="gap"><small>Gap</small><strong>${prettyScore(p.__gap)}</strong></div><div data-mode="combined"><small>Combined</small><strong>${prettyScore(p.__combined)}</strong></div></div><details class="housing-details" open><summary>Housing composition & source context</summary>${lines.join('')}<p><small>Tenure shares overlap and do not necessarily total 100%.</small></p></details>`;
  }
- if(selected)for(const mode of ['baseline','gap','combined'])paintScoreCard(el.querySelector(`.score-comparison [data-mode="${mode}"]`),p['__'+(mode==='baseline'?'base':mode)],mode);
+ if(selected)for(const mode of ['baseline','gap','combined'])paintScoreCard(el.querySelector(`.score-comparison [data-mode="${mode}"]`),{baseline:p.__base,gap:p.__gap,combined:p.__combined},mode);
  for(const f of state.meta.factors){
   const badge=$('score_'+f.id);if(!badge)continue;
   const value=selected?adjustedFactorScore(p,f,state.settings):null;
@@ -518,13 +550,18 @@ function relativeScoreColor(value,mode){
  const normalized=Math.max(0,Math.min(1,(Number(value)-range.min)/(range.max-range.min)));
  return colorForScore(1+4*normalized);
 }
-function paintScoreCard(element,value,mode){
+function bivariateIndicatorColor(scores,mode){
+ if(mode==='combined')return bivariateColor(scores.baseline,scores.gap);
+ const value=scores[mode],classIndex=classifyBivariate(value,mode);
+ return classIndex<0?null:(mode==='baseline'?BASELINE_AXIS:GAP_AXIS)[classIndex];
+}
+function paintScoreCard(element,scores,mode){
  if(!element)return;
- const color=relativeScoreColor(value,mode);
+ const value=scores[mode],color=bivariateIndicatorColor(scores,mode);
  element.style.backgroundColor=color||'#edf1f1';
  element.style.color=color?scoreTextColor(color):'#7c8d92';
  element.style.borderColor=color||'#dce5e5';
- element.title=color?`${mode} ${prettyScore(value)} / 5. Colour is relative to the observed ${mode} score range on the map.`:`No valid ${mode} score`;
+ element.title=color?`${mode} ${prettyScore(value)} / 5. ${mode==='combined'?'4×4 Baseline × Gap bivariate colour':'Bivariate '+mode+' axis colour'}; observed score range. Numeric scores are unchanged.`:`No valid bivariate classification for ${mode}`;
 }
 function formatDelta(delta){return delta>0?`+${delta}`:String(delta);}
 function setWeight(f,raw){
@@ -549,14 +586,17 @@ function addFactorRows(holder,stage){
      const row=document.createElement('div');row.className='factor-row';
      const label=document.createElement('div');label.className='factor-title';
      const labelName=document.createElement('div');labelName.textContent=f.name;label.append(labelName);
-     label.classList.add('factor-hover-target');label.tabIndex=0;
-     label.setAttribute('aria-label',`Preview ${f.name} source data on map`);
-     label.addEventListener('pointerenter',()=>requestFactorHover(f));
-     label.addEventListener('pointerleave',()=>{clearTimeout(hoverTimer);if(hoveredFactor?.id===f.id)cancelFactorHover();});
-     label.addEventListener('focus',()=>requestFactorHover(f));
-     label.addEventListener('blur',()=>{clearTimeout(hoverTimer);if(hoveredFactor?.id===f.id)cancelFactorHover();});
+     const preview=document.createElement('button');preview.type='button';preview.className='factor-preview-link';
+     preview.textContent='View factor on map';
+     preview.setAttribute('aria-label',`Preview ${f.name} on the map`);
+     preview.setAttribute('aria-describedby','factorPreviewHelp');
+     preview.addEventListener('pointerenter',()=>requestFactorHover(f));
+     preview.addEventListener('pointerleave',()=>{clearTimeout(hoverTimer);if(hoveredFactor?.id===f.id)cancelFactorHover();});
+     preview.addEventListener('focus',()=>requestFactorHover(f));
+     preview.addEventListener('blur',()=>{clearTimeout(hoverTimer);if(hoveredFactor?.id===f.id)cancelFactorHover();});
+     label.append(preview);
      const raw=document.createElement('div');raw.id='native_'+f.id;raw.className='native-text';label.append(raw);
-     if(f.description)label.title=f.description;
+     if(f.description)labelName.title=f.description;
      const controls=document.createElement('div');controls.className='weight-control';
      const stepper=document.createElement('div');stepper.className='weight-stepper';
      const field=document.createElement('input');field.type='number';field.min='0';field.max='100';field.step='1';field.inputMode='numeric';
@@ -636,18 +676,16 @@ function legend(){
  }
  if(state.mode==='combined'){
   const {min:bmin,max:bmax}=displayRange('baseline'),{min:gmin,max:gmax}=displayRange('gap');
-  // Display rows high→low Gap. Columns increase low→high Baseline.
-  // The yellow and cyan component ramps and the corner colours match the
-  // supplied ArcGIS Pro reference, transposed into the agreed axis layout.
+  // 4×4 EXACTLY sampled from the user's ArcGIS Pro legend. Top row is high Gap.
   const swatches=[];
-  for(let r=2;r>=0;r--)for(let col=0;col<3;col++)swatches.push(`<span title="Baseline ${['Low','Mid','High'][col]} / Gap ${['Low','Mid','High'][r]}" style="background:${BIVARIATE3[r*3+col]}"></span>`);
+  for(let r=3;r>=0;r--)for(let col=0;col<4;col++)swatches.push(`<span title="Baseline quartile ${col+1} / Gap quartile ${r+1}" style="background:${BIVARIATE4[r*4+col]}"></span>`);
   el.innerHTML=`<h4>BASELINE &amp; GAP · Combined</h4>
    <div class="bi-key"><span class="bi-key-ramp bi-base-ramp"></span><span>Baseline weighted score</span></div>
    <div class="bi-key"><span class="bi-key-ramp bi-gap-ramp"></span><span>Gap weighted score</span></div>
    <div class="bi-matrix-layout"><div class="bi-y-axis"><span>High</span><strong>Gap</strong><span>Low</span></div>
-    <div class="bi-matrix-main"><div class="bi-grid bi-grid-3">${swatches.join('')}</div><div class="bi-x-range"><span>Low</span><span>High</span></div></div></div>
+    <div class="bi-matrix-main"><div class="bi-grid bi-grid-4">${swatches.join('')}</div><div class="bi-x-range"><span>Low</span><span>High</span></div></div></div>
    <div class="bi-x-caption">Baseline weighted score →</div>
-   <div class="legend-note">3 classes per axis, stretched independently to observed Baseline (${bmin.toFixed(2)}–${bmax.toFixed(2)}) and Gap (${gmin.toFixed(2)}–${gmax.toFixed(2)}) scores. Colour shows both measures; the Combined slider still controls numeric scores and area summaries.</div>`;
+   <div class="legend-note">4 classes per axis, stretched independently to observed Baseline (${bmin.toFixed(2)}–${bmax.toFixed(2)}) and Gap (${gmin.toFixed(2)}–${gmax.toFixed(2)}) scores. Popup and area score colours follow this matrix; the numeric Combined score and balance slider remain unchanged.</div>`;
  }else{
   const range=displayRange(state.mode);
   const spread=observedRange(state.mode);
@@ -690,7 +728,7 @@ async function fetchData(demo=false){
  $('bottomNote').textContent=demo?'SYNTHETIC DEMO — not Vancouver planning results':`${Number(meta.grid_size_m)||100} m grid · Browser-side scoring · Zero GIS recomputation`;
  state.areaView='baseline';state.scenarioMode='baseline';state.mode='baseline';
  $('mapContext').textContent=mapModeLabel('baseline');
- const viewChoice=document.querySelector('input[name=areaGridView][value=baseline]');if(viewChoice)viewChoice.checked=true;
+ syncMapLayerWidget();
  buildWeights();activateTab('baseline');legend();scheduleUpdate('full',true);updateMap(true);
 }
 function updateSplit(){const b=Number($('split').value);$('splitBase').textContent=b+'%';$('splitGap').textContent=(100-b)+'%';$('combinedFormula').textContent=`Combined = ${b}% Baseline + ${100-b}% Gap`;}
@@ -758,8 +796,10 @@ function initializeAreaLayers(){
 }
 function refreshAreaMap(){
  if(!state.mapLoaded || !map?.getSource('user-areas'))return;
- const features=drawnAreas.map(a=>({type:'Feature',properties:{area_id:a.id,name:a.name,combined_score:a.result?.scores.combined??null,combined_hex:relativeScoreColor(a.result?.scores.combined??null,'combined')||EMPTY_COLOUR},geometry:a.geometry}));
+ const features=drawnAreas.map(a=>({type:'Feature',properties:{area_id:a.id,name:a.name,combined_score:a.result?.scores.combined??null,combined_hex:bivariateColor(a.result?.scores.baseline??null,a.result?.scores.gap??null)||EMPTY_COLOUR},geometry:a.geometry}));
  map.getSource('user-areas').setData({type:'FeatureCollection',features});
+ setAreaPolygonVisibility();
+ syncMapLayerWidget();
  if(map.getLayer('user-areas-outline')){
   const isSelected=['==',['get','area_id'],selectedAreaId||'__none__'];
   map.setPaintProperty('user-areas-outline','line-color',['case',isSelected,'#07445d','#367f96']);
@@ -867,15 +907,18 @@ function areaDeltaLabel(value,benchmark){
  return {label:rounded>0?`+${rounded.toFixed(2)}`:rounded<0?`−${Math.abs(rounded).toFixed(2)}`:'±0.00',
    difference,description:`Default ${Number(benchmark).toFixed(2)}; current ${Number(value).toFixed(2)}`};
 }
-function areaScoreHTML(value,mode,benchmark){
- const hex=relativeScoreColor(value,mode);const style=hex?`background:${hex};color:${scoreTextColor(hex)};`:'background:#eef2f2;color:#87969c;';
+function areaScoreHTML(scores,mode,benchmark){
+ const value=scores?.[mode]??null;
+ const hex=scores?bivariateIndicatorColor(scores,mode):null;
+ const style=hex?`background:${hex};color:${scoreTextColor(hex)};`:'background:#eef2f2;color:#87969c;';
  const delta=areaDeltaLabel(value,benchmark);
- const title=`${mode} score, colour relative to current scenario range. ${delta.description}. Change = current area-weighted mean minus original spreadsheet-default area-weighted mean.`;
+ const title=`${mode} score, ${mode==='combined'?'bivariate Baseline × Gap':'bivariate '+mode+' axis'} colour. ${delta.description}. Change = current area-weighted mean minus original spreadsheet-default area-weighted mean.`;
  return `<div class="area-score-chip" style="${style}" title="${escapeHTML(title)}"><small>${mode==='baseline'?'Baseline':mode==='gap'?'Gap':'Combined'}</small><strong>${prettyScore(value)}</strong><span class="area-score-delta" aria-label="Change from default: ${escapeHTML(delta.label)}">${escapeHTML(delta.label)} <em>vs default</em></span></div>`;
 }
 function renderAreaResults(){
  $('areaCount').textContent=`${drawnAreas.length} polygon${drawnAreas.length===1?'':'s'}`;
  $('areaTabCount').textContent=drawnAreas.length?String(drawnAreas.length):'';
+ syncMapLayerWidget();
  for(const id of ['exportAreasCSV','exportAreasGeoJSON','clearAreas'])$(id).disabled=!drawnAreas.length;
  const list=$('areasList');list.replaceChildren();
  if(!drawnAreas.length){list.innerHTML='<div class="area-empty">No areas drawn yet. The map stays interactive while you edit scenario weights.</div>';return;}
@@ -884,7 +927,7 @@ function renderAreaResults(){
   const result=area.result;
   const km2=multiPolygonAreaM2(geometryAsMultiPolygon(area.geometry),(bboxOfGeometry(area.geometry)[1]+bboxOfGeometry(area.geometry)[3])/2)/1e6;
   card.innerHTML=`<div class="area-result-header"><input class="area-name-input" aria-label="Name of ${escapeHTML(area.name)}" value="${escapeHTML(area.name)}" maxlength="80"><button class="tiny area-zoom" title="Zoom to polygon">Zoom</button><button class="tiny area-delete" title="Remove polygon">✕</button></div>
-  <div class="area-result-figures">${['baseline','gap','combined'].map(mode=>areaScoreHTML(result?.scores[mode]??null,mode,result?.defaults?.[mode]??null)).join('')}</div>
+  <div class="area-result-figures">${['baseline','gap','combined'].map(mode=>areaScoreHTML(result?.scores??null,mode,result?.defaults?.[mode]??null)).join('')}</div>
   <div class="area-result-meta">${km2<1?`${(km2*100).toFixed(2)} ha`:`${km2.toFixed(2)} km²`} drawn · ${result?`${(result.overlapM2/10000).toFixed(2)} ha in analysis grid · ${result.touched.toLocaleString()} overlapping cells`:'Calculating area averages…'}</div>
   ${result?`<div class="area-coverage">Valid scored area: Baseline ${result.coverage.baseline.toFixed(0)}% · Gap ${result.coverage.gap.toFixed(0)}% · Combined ${result.coverage.combined.toFixed(0)}%</div>`:''}`;
   card.querySelector('.area-name-input').addEventListener('change',e=>{area.name=e.target.value.trim().slice(0,80)||area.name;refreshAreaMap();});
@@ -941,13 +984,26 @@ function exportAreaPolygons(){
 function initializeAreaControls(){
  $('workspaceScenarioTab').addEventListener('click',()=>activeWorkspace('scenario'));
  $('workspaceAreasTab').addEventListener('click',()=>activeWorkspace('areas'));
- for(const input of document.querySelectorAll('input[name=areaGridView]')){
+ for(const input of document.querySelectorAll('input[name=mapGridView]')){
   input.addEventListener('change',()=>{
    if(!input.checked)return;
-   state.areaView=input.value;
-   if(state.workspace==='areas')setMapView(state.areaView);
+   if(state.workspace==='areas'){
+    state.areaView=input.value;
+    setMapView(state.areaView);
+   }else if(input.value==='none'){
+    setMapView('none');
+   }else{
+    // Keep Scenario tabs and map selection synchronized.
+    activateTab(input.value);
+   }
   });
  }
+ $('showAreaScenarios').addEventListener('change',()=>{
+  state.areaPolygonsVisible=$('showAreaScenarios').checked;
+  setAreaPolygonVisibility();
+  syncMapLayerWidget();
+ });
+ syncMapLayerWidget();
  $('drawArea').addEventListener('click',beginDrawingArea);
  $('drawMode').addEventListener('change',()=>{drawMode=$('drawMode').value;});
  $('finishArea').addEventListener('click',finishDrawingArea);

@@ -1,10 +1,11 @@
 // Pure, dependency-free scoring shared by UI and verification tests.
 export const BIVARIATE = [
-  // Rows: Gap low → high; columns: Baseline low → high.
-  // 3×3 reduction sampled from the supplied ArcGIS Pro yellow/cyan 4×4 ramp.
-  '#faffe3', '#fff87a', '#ffeb00',
-  '#7df2e4', '#82d1ad', '#86b076',
-  '#00e6e6', '#2cb0cf', '#007bcc'
+  // 4×4 directly sampled from supplied ArcGIS Pro screenshot.
+  // Row order: Gap LOW → HIGH. Column order: Baseline LOW → HIGH.
+  '#faffe3','#a7f7e4','#53eee5','#00e6e6',
+  '#fffca6','#a8e4b7','#58d4c8','#30c2d6',
+  '#fff44d','#a9d28b','#5ebbab','#289fc8',
+  '#ffeb00','#aabf5e','#63a18e','#007bcc'
 ];
 export const SCORE_STOPS = [
   [1,'#a60126'],[1.5,'#df412f'],[2,'#f99053'],[2.5,'#fed582'],
@@ -45,7 +46,7 @@ export function computeScores(properties,factors,settings){
   // No false combination from a missing stage. Exception: 0% / 100% selected.
   const combined = blend===1?baseline:blend===0?gap:
     (baseline !== null && gap !== null ? baseline*blend+gap*(1-blend):null);
-  const cat=x=>x===null?-1:Math.min(2,Math.max(0,Math.floor((x-1)/ (4/3))));
+  const cat=x=>x===null?-1:Math.min(3,Math.max(0,Math.floor((x-1))));
   const a=cat(baseline),b=cat(gap);
   return {baseline,gap,combined,biv:a<0||b<0?-1:b*3+a};
 }

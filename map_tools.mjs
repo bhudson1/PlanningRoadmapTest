@@ -1,7 +1,7 @@
 // Drawing geometry in WGS84 coordinates.  Shift snapping follows map screen axes;
 // square construction uses Web Mercator x/y metres at the selected location.
-// Legacy name retained for compatibility; the model is the palette source of truth.
-export { BIVARIATE as BIVARIATE3 } from './model.mjs';
+// The source palette in model.mjs also drives this map UI.
+export { BIVARIATE as BIVARIATE4 } from './model.mjs';
 const R=6378137, MAX_LAT=85.05112878;
 const toRad=x=>x*Math.PI/180, toDeg=x=>x*180/Math.PI;
 function mercator(ll){const lat=Math.max(-MAX_LAT,Math.min(MAX_LAT,ll[1]));return [R*toRad(ll[0]),R*Math.log(Math.tan(Math.PI/4+toRad(lat)/2))];}
