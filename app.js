@@ -1,10 +1,10 @@
-import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize} from './model.mjs?v=0479';
-import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0479';
-import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0479';
+import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize,hasScenarioAdjustment} from './model.mjs?v=0480';
+import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0480';
+import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0480';
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
-const state={data:null,meta:null,defaults:{},selectedId:null,mode:'baseline',scenarioMode:'baseline',areaView:'baseline',combinedBivariate:false,areaPolygonsVisible:true,workspace:'scenario',mapLoaded:false,demo:false,scoreRanges:{baseline:null,gap:null,combined:null},
+const state={data:null,meta:null,defaults:{},selectedId:null,mode:'baseline',scenarioMode:'baseline',areaView:'baseline',combinedBivariate:false,areaPolygonsVisible:true,changeOverlayVisible:false,changeOverlayMetric:'combined',workspace:'scenario',mapLoaded:false,demo:false,scoreRanges:{baseline:null,gap:null,combined:null},deltaRanges:{baseline:null,gap:null,combined:null},
   settings:{weights:{},moveNeeds:false,moveCommunity:false,baselineShare:50}};
 // An API-key-free vector basemap lets MapLibre place actual street and place
 // labels above the analysis cells. Raster OSM is a fallback only when the
@@ -88,12 +88,12 @@ function scoreIsValidExpr(factor){
  return ['all',['has',factor.id],['>=',v,1],['<=',v,5]];
 }
 function sumExpression(items){return !items.length?0:items.length===1?items[0]:['+',...items];}
-function stageExpression(stage){
+function stageExpression(stage,settings=state.settings){
  if(!state.meta)return -1;
  const nums=[],dens=[];
  for(const f of state.meta.factors){
-   if(currentStage(f,state.settings)!==stage)continue;
-   const w=Math.max(0,Number(state.settings.weights[f.id]??5));if(!w)continue;
+   if(currentStage(f,settings)!==stage)continue;
+   const w=Math.max(0,Number(settings.weights[f.id]??5));if(!w)continue;
    const valid=scoreIsValidExpr(f);
    const source=scoreValueExpr(f);
    const moved=f.stage==='Baseline'&&stage==='Gap';
@@ -104,18 +104,53 @@ function stageExpression(stage){
  return ['let','den',sumExpression(dens),['case',['>', ['var','den'],0],
    ['/',sumExpression(nums),['var','den']],-1]];
 }
-function mapScoreExpr(mode){
- if(mode==='baseline')return stageExpression('Baseline');
- if(mode==='gap')return stageExpression('Gap');
- const b=stageExpression('Baseline'),g=stageExpression('Gap');
+function mapScoreExpr(mode,settings=state.settings){
+ if(mode==='baseline')return stageExpression('Baseline',settings);
+ if(mode==='gap')return stageExpression('Gap',settings);
+ const b=stageExpression('Baseline',settings),g=stageExpression('Gap',settings);
  if(mode==='combined'){
-   const blend=Math.min(1,Math.max(0,Number(state.settings.baselineShare??50)/100));
+   const blend=Math.min(1,Math.max(0,Number(settings.baselineShare??50)/100));
    if(blend===1)return b;if(blend===0)return g;
    return ['let','b',b,'g',g,['case',
      ['all',['>=',['var','b'],1],['>=',['var','g'],1]],
      ['+',['*',blend,['var','b']],['*',1-blend,['var','g']]],-1]];
  }
  return null;
+}
+// A comparison always uses the true workbook-default values, independent of
+// route toggles, weighting changes, or the active Combined balance.
+function benchmarkSettings(){
+ return {weights:state.defaults,moveNeeds:false,moveCommunity:false,baselineShare:50};
+}
+function scenarioAdjusted(){
+ return !!state.meta && hasScenarioAdjustment(state.settings,state.defaults,state.meta.factors);
+}
+// A separate map overlay compares every cell's live score with its original
+// reference score. Use the same expressions as the base score grid, so no
+// enormous GeoJSON upload is needed when weights change.
+const DELTA_RED='#b2182b',DELTA_NEUTRAL='#f6f7f7',DELTA_BLUE='#2166ac';
+function deltaDisplayRange(mode){
+ const r=state.deltaRanges?.[mode];
+ const extent=r?Math.max(Math.abs(r.min),Math.abs(r.max)):0;
+ return Number.isFinite(extent)?extent:0;
+}
+function deltaFillExpression(mode){
+ const current=mapScoreExpr(mode,state.settings);
+ const reference=mapScoreExpr(mode,benchmarkSettings());
+ const extent=deltaDisplayRange(mode);
+ const color = extent<=1e-9 ? DELTA_NEUTRAL :
+  ['interpolate',['linear'],['var','change'],
+   -extent,DELTA_RED,-extent/2,'#efb0b7',0,DELTA_NEUTRAL,
+   extent/2,'#a6cde1',extent,DELTA_BLUE];
+ return ['let','current',current,['let','reference',reference,
+  ['let','change',['-',['var','current'],['var','reference']],
+   ['case',['any',['<',['var','current'],1],['<',['var','reference'],1]],EMPTY_COLOUR,
+    ['<',['abs',['var','change']],1e-9],DELTA_NEUTRAL,color]]]];
+}
+function signedScoreDelta(n){
+ if(!Number.isFinite(n))return '—';
+ if(Math.abs(n)<0.005)return '±0.00';
+ return (n>0?'+':'−')+Math.abs(n).toFixed(2);
 }
 function classifyBivariate(value,mode){
  if(value===null||value===undefined||!Number.isFinite(Number(value)))return -1;
@@ -188,16 +223,23 @@ function paintMapColors(){
  map.setLayoutProperty('scores','visibility',show?'visible':'none');
  if(map.getLayer('selection'))map.setLayoutProperty('selection','visibility',show?'visible':'none');
  if(show)map.setPaintProperty('scores','fill-color',fillExpression(state.mode));
+ if(map.getLayer('change-cells')){
+  const changed=state.changeOverlayVisible&&!hoveredFactor;
+  map.setLayoutProperty('change-cells','visibility',changed?'visible':'none');
+  if(changed)map.setPaintProperty('change-cells','fill-color',deltaFillExpression(state.changeOverlayMetric));
+ }
 }
-function mapModeLabel(mode){return mode==='none'?'ANALYSIS GRID HIDDEN':mode==='combined'?(state.combinedBivariate?'BASELINE × GAP · BIVARIATE':'COMBINED SCORE'):mode.toUpperCase()+' SCORE';}
+function mapModeLabel(mode){if(state.changeOverlayVisible&&!hoveredFactor)return 'CHANGE VS DEFAULT · '+state.changeOverlayMetric.toUpperCase();return mode==='none'?'ANALYSIS GRID HIDDEN':mode==='combined'?(state.combinedBivariate?'BASELINE × GAP · BIVARIATE':'COMBINED SCORE'):mode.toUpperCase()+' SCORE';}
 function syncMapLayerWidget(){
  const choice=document.querySelector(`input[name="mapGridView"][value="${state.mode}"]`);
  if(choice)choice.checked=true;
  const bivar=$('combinedBivariate');if(bivar)bivar.checked=state.combinedBivariate;
  const areas=$('showAreaScenarios');if(areas)areas.checked=state.areaPolygonsVisible;
+ const changeToggle=$('showChangeOverlay');if(changeToggle)changeToggle.checked=state.changeOverlayVisible;
+ const changeMetric=$('changeLayerMetric');if(changeMetric)changeMetric.value=state.changeOverlayMetric;
  const summary=$('mapLayerSummary');if(summary){
   const named=state.mode==='none'?'Grid hidden':state.mode==='combined'&&state.combinedBivariate?'Combined · bivariate':state.mode[0].toUpperCase()+state.mode.slice(1);
-  summary.textContent=`${named} · Areas ${state.areaPolygonsVisible?'on':'off'}`;
+  summary.textContent=`${named}${state.changeOverlayVisible?' · Δ '+state.changeOverlayMetric:''} · Areas ${state.areaPolygonsVisible?'on':'off'}`;
  }
  const count=$('layerAreaCount');if(count)count.textContent=`${drawnAreas.length} saved`;
 }
@@ -269,13 +311,16 @@ function createMap(){
     setBasemapVisibility();
     map.addSource('cells',{type:'geojson',data:{type:'FeatureCollection',features:[]},generateId:false});
     addOverlayLayer({id:'scores',type:'fill',source:'cells',paint:{'fill-color':fillExpression(state.mode),'fill-opacity':1}});
+    addOverlayLayer({id:'change-cells',type:'fill',source:'cells',layout:{visibility:'none'},paint:{'fill-color':DELTA_NEUTRAL,'fill-opacity':.96}});
     addOverlayLayer({id:'selection',type:'line',source:'cells',paint:{'line-color':'#102e3d','line-width':2.8,'line-opacity':1},filter:['==',['get','GRID_ID'],'__none__']});
-    map.on('click','scores',e=>{if(!drawingArea && e.features?.length){state.selectedId=e.features[0].properties.GRID_ID;updateSelection();}});
+    for(const layer of ['scores','change-cells'])map.on('click',layer,e=>{if(!drawingArea && e.features?.length){state.selectedId=e.features[0].properties.GRID_ID;updateSelection();}});
     initializeAreaLayers();
     setAreaPolygonVisibility();
     syncMapLayerWidget();
-    map.on('mouseenter','scores',()=>map.getCanvas().style.cursor='pointer');
-    map.on('mouseleave','scores',()=>{if(!drawingArea)map.getCanvas().style.cursor='';});
+    for(const layer of ['scores','change-cells']){
+     map.on('mouseenter',layer,()=>map.getCanvas().style.cursor='pointer');
+     map.on('mouseleave',layer,()=>{if(!drawingArea)map.getCanvas().style.cursor='';});
+    }
     if(state.data)updateMap(true,scoresCalculated?updateRevision:null);
   });
 }
@@ -326,16 +371,22 @@ function calculateRevision(revision){
  const settings={...state.settings,weights:{...state.settings.weights}};
  // Fixed spreadsheet-default reference: original factor routing, workbook
  // weights and a 50/50 Combined balance, independent of the live scenario.
- const benchmarkSettings={weights:state.defaults,moveNeeds:false,moveCommunity:false,baselineShare:50};
+ const defaultSettings=benchmarkSettings();
  const share=Math.max(0,Math.min(1,Number(settings.baselineShare)/100));
  let i=0,shown=-1;
  // Determine observed score extrema while already iterating the cells: no
  // second costly pass, and no change to the numeric scores or CSV export.
  const ranges=full ? {baseline:{min:Infinity,max:-Infinity},gap:{min:Infinity,max:-Infinity},combined:{min:Infinity,max:-Infinity}}
                    : {combined:{min:Infinity,max:-Infinity}};
- function track(key,value){
+ const deltaRanges=full ? {baseline:{min:Infinity,max:-Infinity},gap:{min:Infinity,max:-Infinity},combined:{min:Infinity,max:-Infinity}}
+                   : {combined:{min:Infinity,max:-Infinity}};
+ function track(key,value,reference){
   if(value===null || !Number.isFinite(value))return;
   const range=ranges[key];range.min=Math.min(range.min,value);range.max=Math.max(range.max,value);
+  if(reference!==null && Number.isFinite(reference)){
+   const delta=value-reference,dr=deltaRanges[key];
+   dr.min=Math.min(dr.min,delta);dr.max=Math.max(dr.max,delta);
+  }
  }
  function chunk(){
   if(revision!==updateRevision)return;
@@ -345,7 +396,7 @@ function calculateRevision(revision){
    // Calculate the benchmark once per grid cell per loaded dataset. Blend
    // changes and later weight edits reuse these original scores unchanged.
    if(!Object.prototype.hasOwnProperty.call(p,'__defaultBase')){
-    const ref=computeScores(p,factors,benchmarkSettings);
+    const ref=computeScores(p,factors,defaultSettings);
     p.__defaultBase=ref.baseline;
     p.__defaultGap=ref.gap;
     p.__defaultCombined=ref.combined;
@@ -353,12 +404,12 @@ function calculateRevision(revision){
    if(full){
     const r=computeScores(p,factors,settings);
     p.__base=r.baseline;p.__gap=r.gap;p.__combined=r.combined;p.__biv=r.biv;
-    track('baseline',r.baseline);track('gap',r.gap);track('combined',r.combined);
+    track('baseline',r.baseline,p.__defaultBase);track('gap',r.gap,p.__defaultGap);track('combined',r.combined,p.__defaultCombined);
    }else{
     // Changing only the Combined balance does not need 26 factor evaluations.
     const b=p.__base,g=p.__gap;
     p.__combined=share===1?b:share===0?g:(b!==null&&g!==null?b*share+g*(1-share):null);
-    track('combined',p.__combined);
+    track('combined',p.__combined,p.__defaultCombined);
    }
   }
   if(revision!==updateRevision)return;
@@ -372,6 +423,8 @@ function calculateRevision(revision){
   // Commit extrema only after an entire, non-cancelled revision has finished.
   for(const [mode,range] of Object.entries(ranges)){
    state.scoreRanges[mode]=Number.isFinite(range.min)&&Number.isFinite(range.max)?range:null;
+   const d=deltaRanges[mode];
+   state.deltaRanges[mode]=Number.isFinite(d.min)&&Number.isFinite(d.max)?d:null;
   }
   legend();
   finishCalculation(revision);
@@ -472,7 +525,8 @@ function updateSelection(){
   }
   if(isFiniteNumber(p.PIPE_DWELLINGS))lines.push(`<p><b>Proposed dwelling units in source DA: ${Number(p.PIPE_DWELLINGS).toLocaleString(undefined,{maximumFractionDigits:0})}</b><br>Ratios are based on proposed dwelling units at the time of data collection in the dissemination area. This is not the number of homes within this ${Number(state.meta?.grid_size_m)||100} m cell.</p>`);
   if(lines.length===0)lines.push('<p>Housing share source fields are not available for this cell.</p>');
-  el.innerHTML=`<div class="score-comparison"><div data-mode="baseline"><small>Baseline</small><strong>${prettyScore(p.__base)}</strong></div><div data-mode="gap"><small>Gap</small><strong>${prettyScore(p.__gap)}</strong></div><div data-mode="combined"><small>Combined</small><strong>${prettyScore(p.__combined)}</strong></div></div><details class="housing-details" open><summary>Housing composition & source context</summary>${lines.join('')}<p><small>Tenure shares overlap and do not necessarily total 100%.</small></p></details>`;
+  const chip=(mode,value,reference)=>`<div data-mode="${mode}"><small>${mode[0].toUpperCase()+mode.slice(1)}</small><strong>${prettyScore(value)}</strong>${scenarioAdjusted()&&isFiniteNumber(value)&&isFiniteNumber(reference)?`<span class="cell-score-delta">${signedScoreDelta(Number(value)-Number(reference))} vs default</span>`:''}</div>`;
+  el.innerHTML=`<div class="score-comparison">${chip('baseline',p.__base,p.__defaultBase)}${chip('gap',p.__gap,p.__defaultGap)}${chip('combined',p.__combined,p.__defaultCombined)}</div><details class="housing-details" open><summary>Housing composition & source context</summary>${lines.join('')}<p><small>Tenure shares overlap and do not necessarily total 100%.</small></p></details>`;
  }
  if(selected)for(const mode of ['baseline','gap','combined'])paintScoreCard(el.querySelector(`.score-comparison [data-mode="${mode}"]`),{baseline:p.__base,gap:p.__gap,combined:p.__combined},mode);
  for(const f of state.meta.factors){
@@ -664,14 +718,25 @@ function activateTab(next){
  if(state.workspace==='scenario')setMapView(next);
 }
 function legend(){
- const el=$('legend');el.hidden=!state.data||state.mode==='none';
- if(!state.data||state.mode==='none')return;
+ const el=$('legend');el.hidden=!state.data||(state.mode==='none'&&!state.changeOverlayVisible);
+ if(!state.data||(state.mode==='none'&&!state.changeOverlayVisible))return;
  if(hoveredFactor){
   const stats=factorPreviewStats(hoveredFactor);
   const label=stats.raw?'Original source value':'Factor score (1–5)';
   const min=stats.valid?Number(stats.min).toLocaleString(undefined,{maximumFractionDigits:2}):'—';
   const max=stats.valid?Number(stats.max).toLocaleString(undefined,{maximumFractionDigits:2}):'—';
   el.innerHTML=`<h4>${escapeHTML(hoveredFactor.name)}</h4><div class="legend-gradient" style="background:linear-gradient(to right,${FACTOR_COLOURS.join(',')})"></div><div class="legend-labels"><span>${min} · Low</span><span>${max} · High</span></div><div class="legend-note">${label}. Blue palette is independent of scenario scoring. Grey = missing data. Move away to restore the map.</div>`;
+  return;
+ }
+ if(state.changeOverlayVisible&&!hoveredFactor){
+  const metric=state.changeOverlayMetric;
+  const label=metric[0].toUpperCase()+metric.slice(1);
+  const extent=deltaDisplayRange(metric);
+  const d=state.deltaRanges?.[metric];
+  const actual=d&&Number.isFinite(d.min)&&Number.isFinite(d.max)?`Observed: ${signedScoreDelta(d.min)} to ${signedScoreDelta(d.max)}.`:'Calculating current differences…';
+  el.innerHTML=`<h4>${label} · change vs default</h4><div class="legend-gradient change-gradient"></div>
+    <div class="legend-labels"><span>${signedScoreDelta(-extent)} · Decrease</span><span>±0.00</span><span>${signedScoreDelta(extent)} · Increase</span></div>
+    <div class="legend-note">Red = lower score; pale grey = unchanged; blue = higher score. Units are points on the 1–5 score scale. Symmetric stretch around zero. ${actual} Spreadsheet-default weights, original routing, 50/50 Combined balance.</div>`;
   return;
  }
  if(state.mode==='combined'&&state.combinedBivariate){
@@ -706,7 +771,7 @@ async function fetchData(demo=false){
  for(const f of meta.factors){if(!f.id||!f.stage||!f.name)throw new Error('Incomplete factor metadata');}
  clearAllAreas(true);
  cancelFactorHover();factorStatsCache.clear();
- state.demo=demo;state.meta=meta;state.data=geojson;state.selectedId=null;mappedDataset=null;cachedBounds=null;scoresCalculated=false;needsFullScores=true;needsCombinedScore=true;state.scoreRanges={baseline:null,gap:null,combined:null};
+ state.demo=demo;state.meta=meta;state.data=geojson;state.selectedId=null;mappedDataset=null;cachedBounds=null;scoresCalculated=false;needsFullScores=true;needsCombinedScore=true;state.scoreRanges={baseline:null,gap:null,combined:null};state.deltaRanges={baseline:null,gap:null,combined:null};
  const prior=loadScenarioFromHash();
  state.defaults=defaultWeights(meta.factors);
  state.settings={weights:{...state.defaults},moveNeeds:false,moveCommunity:false,baselineShare:50};
@@ -726,7 +791,7 @@ async function fetchData(demo=false){
  $('resolutionNote').textContent=`Scores are averaged from valid ${sourceSize} m analysis pixels in each ${gridSize} m grid polygon. Browser scenarios reweight those scores without rerunning GIS analysis.`;
  $('dataNotes').textContent=`Factor weights default to the source workbook. Export created ${meta.created_utc?new Date(meta.created_utc).toLocaleString():'unknown date'}. Housing shares are fractions (0–1), displayed as percentages. Original workbook targets are embedded in metadata. Scenario changes do not alter the underlying exported data.`;
  $('bottomNote').textContent=demo?'SYNTHETIC DEMO — not Vancouver planning results':`${Number(meta.grid_size_m)||100} m grid · Browser-side scoring · Zero GIS recomputation`;
- state.areaView='baseline';state.scenarioMode='baseline';state.mode='baseline';state.combinedBivariate=false;
+ state.areaView='baseline';state.scenarioMode='baseline';state.mode='baseline';state.combinedBivariate=false;state.changeOverlayVisible=false;state.changeOverlayMetric='combined';
  $('mapContext').textContent=mapModeLabel('baseline');
  syncMapLayerWidget();
  buildWeights();activateTab('baseline');legend();scheduleUpdate('full',true);updateMap(true);
@@ -904,7 +969,7 @@ function areaDeltaLabel(value,benchmark){
  // Display a true signed difference in score points (not percent). Avoid
  // a misleading -0.00 from floating-point drift.
  const rounded=Math.abs(difference)<0.005?0:difference;
- return {label:rounded>0?`+${rounded.toFixed(2)}`:rounded<0?`−${Math.abs(rounded).toFixed(2)}`:null,
+ return {label:!scenarioAdjusted()?null:rounded>0?`+${rounded.toFixed(2)}`:rounded<0?`−${Math.abs(rounded).toFixed(2)}`:'±0.00',
    difference,description:`Default ${Number(benchmark).toFixed(2)}; current ${Number(value).toFixed(2)}`};
 }
 function areaScoreHTML(scores,mode,benchmark){
@@ -1006,6 +1071,21 @@ function initializeAreaControls(){
   legend();
   // This only changes map paint. No scoring, polygons or layer data reload.
   if(state.mode==='combined')scheduleUpdate('paint');
+ });
+ $('showChangeOverlay').addEventListener('change',()=>{
+  state.changeOverlayVisible=$('showChangeOverlay').checked;
+  cancelFactorHover();
+  syncMapLayerWidget();
+  $('mapContext').textContent=mapModeLabel(state.mode);
+  legend();
+  if(state.data)scheduleUpdate('paint');else paintMapColors();
+ });
+ $('changeLayerMetric').addEventListener('change',()=>{
+  state.changeOverlayMetric=$('changeLayerMetric').value;
+  syncMapLayerWidget();
+  $('mapContext').textContent=mapModeLabel(state.mode);
+  legend();
+  if(state.changeOverlayVisible){if(state.data)scheduleUpdate('paint');else paintMapColors();}
  });
  $('showAreaScenarios').addEventListener('change',()=>{
   state.areaPolygonsVisible=$('showAreaScenarios').checked;

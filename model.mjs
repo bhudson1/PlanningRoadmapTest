@@ -64,3 +64,12 @@ export function summarize(features){
   }
   return {cells:n,baseline:bn?b/bn:null,gap:gn?g/gn:null,combined:cn?c/cn:null};
 }
+
+// The comparison becomes visible once any parameter differs from the
+// spreadsheet-default scenario, even when the resulting score delta is zero.
+export function hasScenarioAdjustment(settings,defaults,factors){
+ if(!settings||!defaults)return false;
+ if(Boolean(settings.moveNeeds)||Boolean(settings.moveCommunity))return true;
+ if(Number(settings.baselineShare??50)!==50)return true;
+ return (factors||[]).some(f=>Number(settings.weights?.[f.id]??defaults[f.id]??0)!==Number(defaults[f.id]??0));
+}

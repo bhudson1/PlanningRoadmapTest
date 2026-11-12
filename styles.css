@@ -318,3 +318,18 @@
 .layer-combined{background:linear-gradient(125deg,#a60126,#fdfebc,#006837)}
 .layer-bivariate{background:linear-gradient(125deg,#ffeb00,#a8e4b7,#007bcc)}
 .weight-delta[hidden]{display:none!important}
+
+/* v0.4.80 — independent change-from-default layer, diverging colours. */
+.map-layer-swatch.layer-change{background:linear-gradient(90deg,#b2182b 0%,#efb0b7 25%,#f6f7f7 50%,#a6cde1 75%,#2166ac 100%)}
+.change-layer-select{display:flex;align-items:center;gap:8px;justify-content:space-between;font-size:11px;font-weight:700;color:#31545c;padding:7px 9px 4px 27px}
+.change-layer-select select{flex:1;max-width:160px;border:1px solid #c9dddd;border-radius:5px;background:#fff;padding:6px;color:#234a57;font-size:11px}
+.change-layer-key{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:#536b75;font-size:10px;padding:5px 5px 8px 28px}
+.change-layer-key i{display:inline-block;width:13px;height:13px;border-radius:3px;border:1px solid #c3d1d0;margin-left:5px}
+.change-layer-key i:first-child{margin-left:0}
+.change-layer-key .change-negative{background:#b2182b}
+.change-layer-key .change-neutral{background:#f6f7f7}
+.change-layer-key .change-positive{background:#2166ac}
+.legend-gradient.change-gradient{background:linear-gradient(to right,#b2182b 0%,#efb0b7 25%,#f6f7f7 50%,#a6cde1 75%,#2166ac 100%)}
+
+/* Selected-cell detail mirrors the always-visible-after-edit score deltas. */
+.cell-score-delta{display:block;margin-top:5px;font-size:10px;font-weight:800;font-variant-numeric:tabular-nums;color:inherit;opacity:.88;line-height:1.3}
