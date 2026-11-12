@@ -1,7 +1,7 @@
 // Pure, dependency-free scoring shared by UI and verification tests.
 export const BIVARIATE = [
   // 4×4 directly sampled from supplied ArcGIS Pro screenshot.
-  // Row order: Gap LOW → HIGH. Column order: Baseline LOW → HIGH.
+  // Row order: Baseline LOW → HIGH (vertical Y). Column order: Gap LOW → HIGH (horizontal X).
   '#faffe3','#a7f7e4','#53eee5','#00e6e6',
   '#fffca6','#a8e4b7','#58d4c8','#30c2d6',
   '#fff44d','#a9d28b','#5ebbab','#289fc8',
@@ -48,7 +48,7 @@ export function computeScores(properties,factors,settings){
     (baseline !== null && gap !== null ? baseline*blend+gap*(1-blend):null);
   const cat=x=>x===null?-1:Math.min(3,Math.max(0,Math.floor((x-1))));
   const a=cat(baseline),b=cat(gap);
-  return {baseline,gap,combined,biv:a<0||b<0?-1:b*3+a};
+  return {baseline,gap,combined,biv:a<0||b<0?-1:a*4+b};
 }
 export function prettyScore(score){return score===null || !Number.isFinite(score)?'—':score.toFixed(2)}
 export function ratioText(fraction){

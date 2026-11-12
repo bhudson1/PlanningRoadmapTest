@@ -1,6 +1,6 @@
-import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize,hasScenarioAdjustment} from './model.mjs?v=0481';
-import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0481';
-import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0481';
+import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize,hasScenarioAdjustment} from './model.mjs?v=0482';
+import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0482';
+import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0482';
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
@@ -160,7 +160,7 @@ function classifyBivariate(value,mode){
 }
 function bivariateColor(baseline,gap){
  const b=classifyBivariate(baseline,'baseline'),g=classifyBivariate(gap,'gap');
- return b<0||g<0?null:BIVARIATE4[g*4+b];
+ return b<0||g<0?null:BIVARIATE4[b*4+g];
 }
 function bivariateClassExpr(value,mode){
  // Equal quarters of the observed range, independently for each axis.
@@ -174,7 +174,8 @@ function bivariateClassExpr(value,mode){
 }
 function bivariateFillExpression(){
  const b=stageExpression('Baseline'),g=stageExpression('Gap');
- const code=['+', ['*',4,bivariateClassExpr(['var','g'],'gap')],bivariateClassExpr(['var','b'],'baseline')];
+ // The palette is row-major: Baseline on the vertical axis, Gap on the horizontal axis.
+ const code=['+', ['*',4,bivariateClassExpr(['var','b'],'baseline')],bivariateClassExpr(['var','g'],'gap')];
  return ['let','b',b,'g',g,['case',
    ['any',['<',['var','b'],1],['<',['var','g'],1]],EMPTY_COLOUR,
    ['match',code,...BIVARIATE4.flatMap((hex,i)=>[i,hex]),EMPTY_COLOUR]]];
@@ -791,15 +792,15 @@ function legend(){
  }
  if(state.mode==='combined'&&state.combinedBivariate){
   const {min:bmin,max:bmax}=displayRange('baseline'),{min:gmin,max:gmax}=displayRange('gap');
-  // 4×4 EXACTLY sampled from the user's ArcGIS Pro legend. Top row is high Gap.
+  // 4×4 sampled from the user's ArcGIS Pro legend. Top row is high Baseline; Gap rises left to right.
   const swatches=[];
-  for(let r=3;r>=0;r--)for(let col=0;col<4;col++)swatches.push(`<span title="Baseline quartile ${col+1} / Gap quartile ${r+1}" style="background:${BIVARIATE4[r*4+col]}"></span>`);
+  for(let r=3;r>=0;r--)for(let col=0;col<4;col++)swatches.push(`<span title="Baseline quartile ${r+1} / Gap quartile ${col+1}" style="background:${BIVARIATE4[r*4+col]}"></span>`);
   el.innerHTML=`<h4>BASELINE &amp; GAP · Combined</h4>
    <div class="bi-key"><span class="bi-key-ramp bi-base-ramp"></span><span>Baseline weighted score</span></div>
    <div class="bi-key"><span class="bi-key-ramp bi-gap-ramp"></span><span>Gap weighted score</span></div>
-   <div class="bi-matrix-layout"><div class="bi-y-axis"><span>High</span><strong>Gap</strong><span>Low</span></div>
+   <div class="bi-matrix-layout"><div class="bi-y-axis"><span>High</span><strong>Baseline</strong><span>Low</span></div>
     <div class="bi-matrix-main"><div class="bi-grid bi-grid-4">${swatches.join('')}</div><div class="bi-x-range"><span>Low</span><span>High</span></div></div></div>
-   <div class="bi-x-caption">Baseline weighted score →</div>
+   <div class="bi-x-caption">Gap weighted score →</div>
    <div class="legend-note">4 classes per axis, stretched independently to observed Baseline (${bmin.toFixed(2)}–${bmax.toFixed(2)}) and Gap (${gmin.toFixed(2)}–${gmax.toFixed(2)}) scores. This matrix affects only the Combined map. Popups, area score cards, and drawn polygon fills use the numeric Combined score's red-to-green scale.</div>`;
  }else{
   const range=displayRange(state.mode);
