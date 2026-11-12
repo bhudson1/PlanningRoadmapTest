@@ -1,6 +1,6 @@
-import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize} from './model.mjs?v=0477';
-import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0477';
-import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0477';
+import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize} from './model.mjs?v=0478';
+import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0478';
+import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0478';
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
@@ -49,8 +49,6 @@ const HIGH_COLOUR = SCORE_STOPS[SCORE_STOPS.length-1][1];
 const EMPTY_COLOUR = '#dce3e1';
 // Palette contains 9 sampled ArcGIS colours, ordered Gap low→high × Baseline low→high.
 const BIVARIATE4=BIVARIATE;
-const BASELINE_AXIS=['#faffe3','#fffca6','#fff44d','#ffeb00'];
-const GAP_AXIS=['#faffe3','#a7f7e4','#53eee5','#00e6e6'];
 const FACTOR_COLOURS=['#e9f5fb','#b9dfec','#74b5cf','#2d88b0','#084b78'];
 let hoveredFactor=null,hoverTimer=0;
 const factorStatsCache=new Map();
@@ -551,9 +549,11 @@ function relativeScoreColor(value,mode){
  return colorForScore(1+4*normalized);
 }
 function bivariateIndicatorColor(scores,mode){
+ // Only Combined is bivariate; Baseline and Gap match their map's
+ // continuous red-to-green observed-score stretch.
  if(mode==='combined')return bivariateColor(scores.baseline,scores.gap);
- const value=scores[mode],classIndex=classifyBivariate(value,mode);
- return classIndex<0?null:(mode==='baseline'?BASELINE_AXIS:GAP_AXIS)[classIndex];
+ if(mode==='baseline'||mode==='gap')return relativeScoreColor(scores[mode],mode);
+ return null;
 }
 function paintScoreCard(element,scores,mode){
  if(!element)return;
@@ -561,7 +561,7 @@ function paintScoreCard(element,scores,mode){
  element.style.backgroundColor=color||'#edf1f1';
  element.style.color=color?scoreTextColor(color):'#7c8d92';
  element.style.borderColor=color||'#dce5e5';
- element.title=color?`${mode} ${prettyScore(value)} / 5. ${mode==='combined'?'4×4 Baseline × Gap bivariate colour':'Bivariate '+mode+' axis colour'}; observed score range. Numeric scores are unchanged.`:`No valid bivariate classification for ${mode}`;
+ element.title=color?`${mode} ${prettyScore(value)} / 5. ${mode==='combined'?'4×4 Baseline × Gap bivariate colour':'Red-to-green score colour'}; observed score range. Numeric scores are unchanged.`:`No valid bivariate classification for ${mode}`;
 }
 function formatDelta(delta){return delta>0?`+${delta}`:String(delta);}
 function setWeight(f,raw){
@@ -912,7 +912,7 @@ function areaScoreHTML(scores,mode,benchmark){
  const hex=scores?bivariateIndicatorColor(scores,mode):null;
  const style=hex?`background:${hex};color:${scoreTextColor(hex)};`:'background:#eef2f2;color:#87969c;';
  const delta=areaDeltaLabel(value,benchmark);
- const title=`${mode} score, ${mode==='combined'?'bivariate Baseline × Gap':'bivariate '+mode+' axis'} colour. ${delta.description}. Change = current area-weighted mean minus original spreadsheet-default area-weighted mean.`;
+ const title=`${mode} score, ${mode==='combined'?'bivariate Baseline × Gap':'red-to-green score'} colour. ${delta.description}. Change = current area-weighted mean minus original spreadsheet-default area-weighted mean.`;
  return `<div class="area-score-chip" style="${style}" title="${escapeHTML(title)}"><small>${mode==='baseline'?'Baseline':mode==='gap'?'Gap':'Combined'}</small><strong>${prettyScore(value)}</strong><span class="area-score-delta" aria-label="Change from default: ${escapeHTML(delta.label)}">${escapeHTML(delta.label)} <em>vs default</em></span></div>`;
 }
 function renderAreaResults(){

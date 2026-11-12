@@ -309,3 +309,5 @@
 @media(max-width:700px){.map-layer-widget{top:109px;right:7px;width:197px;font-size:10px}.map-layer-widget>summary{padding:7px 8px}.map-layer-widget>summary small{font-size:8px}.map-layer-content{padding:8px}}
 
 @media(max-width:700px){.map-layer-widget[open]{max-height:calc(49dvh - 117px);overflow-y:auto}}
+
+/* v0.4.78: Baseline and Gap score indicators use map-matching red/green stretch; Combined retains 4x4 bivariate. */
