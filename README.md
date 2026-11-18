@@ -1,3 +1,5 @@
+> **Current website update:** v0.4.83. See [README_v0483.md](README_v0483.md) for restored candidate imports, reference layers and deployment instructions. The information below describes the earlier v0.4.68 Open Data integration.
+
 # Planning Opportunity Explorer — v0.4.68 (Vancouver Open Data)
 
 This is a static MapLibre website for exported ArcGIS Pro planning opportunity grids.

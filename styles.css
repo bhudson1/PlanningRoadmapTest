@@ -339,3 +339,19 @@
 .factor-category-row{display:grid;grid-template-columns:15px minmax(0,1fr) auto;align-items:center;gap:7px;color:#314d5d;font-size:11px;line-height:1.4}
 .factor-category-row i{display:block;width:15px;height:15px;border:1px solid #365b692d;border-radius:3px}
 .factor-category-row small{font-size:9px;color:#6c838c;white-space:nowrap}
+
+/* v0.4.83 — restored reference overlays and GeoJSON candidate imports. */
+.candidate-area-import{margin:12px 0;padding:12px 13px;background:#edf5f4;border:1px solid #bfd6d3;border-radius:9px}
+.candidate-import-label{display:flex;flex-direction:column;gap:5px;cursor:pointer;color:#174c59}
+.candidate-import-label strong{font-size:13px}
+.candidate-import-label span{color:#526e73;font-size:11px;line-height:1.45}
+.candidate-area-import input[type=file]{display:block;margin-top:9px;max-width:100%;font-size:11px}
+.area-import-status{font-size:10px;color:#5b777d;margin-top:7px;line-height:1.4}
+
+.candidate-name-field,.candidate-area-sort{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:#476875;margin:9px 0 4px}
+.candidate-name-field select,.candidate-area-sort select{max-width:55%;min-width:140px;border:1px solid #d1dddd;background:#fff;padding:5px;border-radius:5px;color:#365362}
+.area-factor-details{margin-top:9px;border-top:1px solid #d7e3e2;padding-top:7px;font-size:11px}
+.area-factor-details summary{cursor:pointer;font-weight:700;color:#305765;margin-bottom:5px}
+.area-factor-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-top:1px solid #e4edeb}
+.area-factor-row span{flex:1;color:#506b70}.area-factor-row b{font-variant-numeric:tabular-nums;flex:none}
+.area-import-source{font-size:10px;color:#688087;margin:7px 0 0}

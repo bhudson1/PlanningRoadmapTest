@@ -1,6 +1,6 @@
-import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize,hasScenarioAdjustment} from './model.mjs?v=0482';
-import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0482';
-import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0482';
+import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize,hasScenarioAdjustment} from './model.mjs?v=0483';
+import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0483';
+import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0483';
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
@@ -26,6 +26,10 @@ let nativeBasemapVisibility=[];
 let vectorBasemapLoaded=false;
 let rasterFallbackUsed=false;
 let drawingArea=false;
+let references=[];
+const referenceVisibility=Object.create(null),referenceLabels=Object.create(null);
+let labelFrame=0,hoverPopup=null,areaHoverPopup=null;
+
 
 function addOverlayLayer(layer){
  // The symbol layers of the vector basemap stay ABOVE all thematic and
@@ -356,9 +360,18 @@ function createMap(){
     addOverlayLayer({id:'scores',type:'fill',source:'cells',paint:{'fill-color':fillExpression(state.mode),'fill-opacity':1}});
     addOverlayLayer({id:'change-cells',type:'fill',source:'cells',layout:{visibility:'none'},paint:{'fill-color':DELTA_NEUTRAL,'fill-opacity':.96}});
     addOverlayLayer({id:'selection',type:'line',source:'cells',paint:{'line-color':'#102e3d','line-width':2.8,'line-opacity':1},filter:['==',['get','GRID_ID'],'__none__']});
-    for(const layer of ['scores','change-cells'])map.on('click',layer,e=>{if(!drawingArea && e.features?.length){state.selectedId=e.features[0].properties.GRID_ID;updateSelection();}});
+    for(const layer of ['scores','change-cells'])map.on('click',layer,e=>{
+      if(map.getLayer('user-areas-fill')&&state.areaPolygonsVisible&&map.queryRenderedFeatures(e.point,{layers:['user-areas-fill']}).length)return;
+      if(!drawingArea && e.features?.length){state.selectedId=e.features[0].properties.GRID_ID;updateSelection();}
+    });
     initializeAreaLayers();
     setAreaPolygonVisibility();
+    renderReferenceLayers();
+    scheduleReferenceLabels();
+    map.on('move',scheduleReferenceLabels);
+    map.on('resize',scheduleReferenceLabels);
+    map.on('mousemove',hoverReferenceAtPointer);
+    map.on('mouseout',()=>{if(hoverPopup){hoverPopup.remove();hoverPopup=null;}});
     syncMapLayerWidget();
     for(const layer of ['scores','change-cells']){
      map.on('mouseenter',layer,()=>map.getCanvas().style.cursor='pointer');
@@ -367,6 +380,192 @@ function createMap(){
     if(state.data)updateMap(true,scoresCalculated?updateRevision:null);
   });
 }
+// Optional reference overlays are separate from scoring. Their visibility never
+// modifies factor values, stage weights, grid geometry or analysis summaries.
+function addReferenceLayer(layer){map.addLayer(layer,map.getLayer('user-areas-fill')?'user-areas-fill':nativeLabelAnchor||undefined);}
+function refLayerIds(id){return ['webref-fill-'+id,'webref-line-'+id,'webref-point-'+id];}
+function clearReferenceLayers(){
+ if(!map || !state.mapLoaded)return;
+ for(const old of references){
+  for(const lid of refLayerIds(old.id))if(map.getLayer(lid))map.removeLayer(lid);
+  if(map.getSource('webref-'+old.id))map.removeSource('webref-'+old.id);
+ }
+}
+// Treat GLU and parcel boundaries differently. The GLU polygons intentionally
+// have NO outline; parcels use fine, low-contrast grey strokes. Other user-
+// supplied references keep their configured styling and labels.
+function referenceKind(spec){
+ const text=String(spec.name||'').toLowerCase();
+ if(/\bglu\b|generalized land use|generalised land use/.test(text))return 'glu';
+ if(/parcel|cadastr|\blot lines?\b|lot boundaries|property lines?/.test(text))return 'parcel';
+ return 'normal';
+}
+function renderReferenceLayers(){
+ if(!state.mapLoaded)return;
+ for(const spec of references){
+  if(!spec.geojson)continue;
+  const sid='webref-'+spec.id;
+  if(!map.getSource(sid))map.addSource(sid,{type:'geojson',data:spec.geojson});
+  const visible=referenceVisibility[spec.id]?'visible':'none';
+  const c=spec.color||'#537d9b',g=String(spec.geometry_type||'').toLowerCase();
+  const kind=referenceKind(spec),parcel=kind==='parcel',glu=kind==='glu';
+  if(g==='polygon'){
+   if(!map.getLayer('webref-fill-'+spec.id))addReferenceLayer({id:'webref-fill-'+spec.id,type:'fill',source:sid,
+    layout:{visibility:visible},paint:{'fill-color':parcel?'#bec8cb':c,'fill-opacity':parcel ? 0.001 : (glu ? 0.30 : 0.12)}});
+   // No GLU border, and no parcel fill. A nearly invisible parcel fill is
+   // retained as an interactive hit target for mouse hover.
+   if(!glu && !map.getLayer('webref-line-'+spec.id))addReferenceLayer({id:'webref-line-'+spec.id,type:'line',source:sid,
+    ...(parcel?{minzoom:12}:{}),layout:{visibility:visible},paint:{
+      'line-color':parcel?'#aeb8ba':c,'line-width':parcel:.6:1.7,
+      'line-opacity':parcel:.52:.94}});
+  }else if(g==='polyline'||g==='line'){
+   if(!map.getLayer('webref-line-'+spec.id))addReferenceLayer({id:'webref-line-'+spec.id,type:'line',source:sid,
+    ...(parcel?{minzoom:12}:{}),layout:{visibility:visible},paint:{
+     'line-color':parcel?'#aeb8ba':c,'line-width':parcel:.65:2.3,
+     'line-opacity':parcel:.55:.95}});
+  }else if(g==='point'||g==='multipoint'){
+   if(!map.getLayer('webref-point-'+spec.id))addReferenceLayer({id:'webref-point-'+spec.id,type:'circle',source:sid,
+    layout:{visibility:visible},paint:{'circle-color':c,'circle-radius':5,'circle-stroke-width':1.6,'circle-stroke-color':'#fff'}});
+  }
+ }
+ scheduleReferenceLabels();
+}
+function hoverReferenceAtPointer(e){
+ if(!state.mapLoaded)return;
+ // Preserve cell click/hover and prioritise uploaded candidate areas.
+ if(map.getLayer('user-areas-fill')&&state.areaPolygonsVisible &&
+     map.queryRenderedFeatures(e.point,{layers:['user-areas-fill']}).length){
+  if(hoverPopup){hoverPopup.remove();hoverPopup=null;}
+  return;
+ }
+ const ids=references.filter(r=>referenceVisibility[r.id]&&r.geojson)
+  .flatMap(r=>refLayerIds(r.id)).filter(id=>map.getLayer(id));
+ if(!ids.length){if(hoverPopup){hoverPopup.remove();hoverPopup=null;}return;}
+ const hit=map.queryRenderedFeatures(e.point,{layers:ids})[0];
+ const ref=hit&&references.find(r=>refLayerIds(r.id).includes(hit.layer.id));
+ const label=hit?.properties?.WEB_LABEL || ref?.name;
+ if(!ref||!label){if(hoverPopup){hoverPopup.remove();hoverPopup=null;}return;}
+ if(!hoverPopup)hoverPopup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'reference-tooltip'});
+ const box=document.createElement('div');
+ const head=document.createElement('b');head.textContent=ref.name;
+ const detail=document.createElement('span');detail.textContent=String(label);
+ box.append(head,document.createElement('br'),detail);
+ hoverPopup.setLngLat(e.lngLat).setDOMContent(box).addTo(map);
+}
+function setReferenceVisibility(id){
+ if(state.mapLoaded){for(const lid of refLayerIds(id))if(map.getLayer(lid))
+  map.setLayoutProperty(lid,'visibility',referenceVisibility[id]?'visible':'none');}
+ scheduleReferenceLabels();
+}
+function referenceList(){
+ const el=$('referenceList');el.replaceChildren();
+ $('referenceCount').textContent=references.length?`${references.length} layers`:'No layers';
+ if(!references.length){const p=document.createElement('p');p.className='micro';p.textContent='Add optional reference layers in ArcGIS Pro Tool 5 to display boundaries, facilities, streets or places.';el.append(p);return;}
+ for(const ref of references){
+  const wrap=document.createElement('div');wrap.className='reference-row';
+  const top=document.createElement('label');top.className='reference-choice';
+  const check=document.createElement('input');check.type='checkbox';check.checked=!!referenceVisibility[ref.id];
+  check.setAttribute('aria-label','Show reference layer '+ref.name);
+  check.addEventListener('change',()=>{referenceVisibility[ref.id]=check.checked;setReferenceVisibility(ref.id);});
+  const swatch=document.createElement('span');swatch.className='reference-swatch';swatch.style.backgroundColor=referenceKind(ref)==='parcel'?'#aeb8ba':ref.color||'#537d9b';
+  const name=document.createElement('strong');name.textContent=ref.name;
+  top.append(check,swatch,name);wrap.append(top);
+  const sub=document.createElement('label');sub.className='reference-label-choice';
+  const labelCheck=document.createElement('input');labelCheck.type='checkbox';
+  labelCheck.checked=!!referenceLabels[ref.id];labelCheck.disabled=!ref.source_label_field;
+  labelCheck.addEventListener('change',()=>{referenceLabels[ref.id]=labelCheck.checked;scheduleReferenceLabels();});
+  const span=document.createElement('span');span.textContent=ref.source_label_field?'Show labels · '+ref.source_label_field:'No label field selected';
+  sub.append(labelCheck,span);wrap.append(sub);
+  if(ref.error){const err=document.createElement('div');err.className='reference-error';err.textContent=ref.error;wrap.append(err);}
+  el.append(wrap);
+ }
+}
+function representativeCoordinate(geom){
+ if(!geom)return null;
+ const t=geom.type,c=geom.coordinates;
+ if(t==='Point')return c;
+ if(t==='MultiPoint')return c?.[0];
+ if(t==='LineString'||t==='MultiLineString'){
+  const line=t==='LineString'?c:c?.reduce((a,b)=>b.length>a.length?b:a,[]);
+  return line?.[Math.floor(line.length/2)]||null;
+ }
+ if(t==='Polygon'||t==='MultiPolygon'){
+  const rings=t==='Polygon'?[c?.[0]]:(c||[]).map(p=>p?.[0]);
+  const ring=(rings||[]).filter(Boolean).reduce((a,b)=>b.length>a.length?b:a,[]);
+  if(!ring.length)return null;
+  // Subtract an origin first to avoid floating-point cancellation with
+  // tiny polygons at longitude -123 / latitude 49.
+  const origin=ring[0];let area=0,cx=0,cy=0;
+  for(let i=0;i<ring.length;i++){
+   const a=[ring[i][0]-origin[0],ring[i][1]-origin[1]];
+   const next=ring[(i+1)%ring.length],b=[next[0]-origin[0],next[1]-origin[1]];
+   const cross=a[0]*b[1]-b[0]*a[1];
+   area+=cross;cx+=(a[0]+b[0])*cross;cy+=(a[1]+b[1])*cross;
+  }
+  if(Math.abs(area)>1e-16)return [origin[0]+cx/(3*area),origin[1]+cy/(3*area)];
+  return ring[Math.floor(ring.length/2)];
+ }
+ return null;
+}
+function scheduleReferenceLabels(){
+ if(labelFrame)return;
+ labelFrame=requestAnimationFrame(()=>{labelFrame=0;drawReferenceLabels();});
+}
+function drawReferenceLabels(){
+ const canvas=$('referenceLabelCanvas');
+ if(!canvas||!map||!state.mapLoaded)return;
+ const area=$('map-area'),width=area.clientWidth,height=area.clientHeight;
+ if(!width||!height)return;
+ const ratio=Math.min(window.devicePixelRatio||1,2);
+ if(canvas.width!==Math.round(width*ratio)||canvas.height!==Math.round(height*ratio)){
+  canvas.width=Math.round(width*ratio);canvas.height=Math.round(height*ratio);
+  canvas.style.width=width+'px';canvas.style.height=height+'px';
+ }
+ const ctx=canvas.getContext('2d');ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,width,height);
+ const zoom=map.getZoom();if(zoom<10)return;
+ ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='600 12px "Noto Sans",Arial,sans-serif';
+ ctx.lineJoin='round';ctx.lineWidth=3.5;ctx.strokeStyle='rgba(255,255,255,.94)';
+ const taken=[];let drawn=0;
+ for(const ref of references){
+  if(!referenceVisibility[ref.id]||!referenceLabels[ref.id]||!ref.geojson?.features)continue;
+  if((ref.geometry_type==='polyline'&&zoom<11)||(ref.geometry_type==='polygon'&&zoom<11))continue;
+  ctx.fillStyle=ref.color||'#35546a';
+  for(const f of ref.geojson.features){
+   if(drawn>=330)break;
+   const label=String(f.properties?.WEB_LABEL??'').trim();if(!label)continue;
+   const xy=representativeCoordinate(f.geometry);if(!xy)continue;
+   const screen=map.project(xy);const x=screen.x,y=screen.y;
+   if(x<25||y<25||x>width-25||y>height-25)continue;
+   const w=Math.min(ctx.measureText(label).width,260);
+   const box=[x-w/2-4,y-9,x+w/2+4,y+9];
+   if(taken.some(b=>!(box[2]<b[0]||box[0]>b[2]||box[3]<b[1]||box[1]>b[3])))continue;
+   taken.push(box);ctx.strokeText(label,x,y,260);ctx.fillText(label,x,y,260);drawn++;
+  }
+ }
+}
+async function loadReferences(meta){
+ clearReferenceLayers();references=[];
+ for(const id of Object.keys(referenceVisibility))delete referenceVisibility[id];
+ for(const id of Object.keys(referenceLabels))delete referenceLabels[id];
+ for(const ref of meta.references||[]){
+  // A generated export always uses a local data/references/*.geojson path.
+  if(!/^references\/[a-z0-9_]+\.geojson$/.test(ref.file||''))continue;
+  const record={...ref,geojson:null,error:null};
+  try{
+   const resp=await fetch('data/'+ref.file);
+   if(!resp.ok)throw new Error('HTTP '+resp.status);
+   const data=await resp.json();
+   if(data.type!=='FeatureCollection'||!Array.isArray(data.features))throw new Error('Invalid GeoJSON');
+   record.geojson=data;
+  }catch(err){record.error='Could not load reference GeoJSON ('+err.message+')';}
+  if(record.geojson){referenceVisibility[record.id]=ref.visible!==false;
+    referenceLabels[record.id]=!!ref.labels_visible;}
+  references.push(record);
+ }
+ // Keep unavailable rows visible with an error; never add a bad GeoJSON source.
+ referenceList();renderReferenceLayers();
+}
+
 function makeBounds(fc){const bounds=new maplibregl.LngLatBounds();let found=false;
  function walk(arr){if(typeof arr?.[0]==='number'){bounds.extend(arr);found=true;}else if(Array.isArray(arr)){for(const a of arr)walk(a);}}
  for(const f of fc.features)walk(f.geometry.coordinates);
@@ -846,6 +1045,7 @@ async function fetchData(demo=false){
  $('mapContext').textContent=mapModeLabel('baseline');
  syncMapLayerWidget();
  buildWeights();activateTab('baseline');legend();scheduleUpdate('full',true);updateMap(true);
+ loadReferences(demo?{references:[]}:meta).catch(error=>console.warn('Reference layers could not load:',error));
 }
 function updateSplit(){const b=Number($('split').value);$('splitBase').textContent=b+'%';$('splitGap').textContent=(100-b)+'%';$('combinedFormula').textContent=`Combined = ${b}% Baseline + ${100-b}% Gap`;}
 function loadScenarioFromHash(){try{if(location.hash.startsWith('#scenario='))return JSON.parse(decodeURIComponent(location.hash.slice(10)));}catch(e){}return null;}
@@ -864,6 +1064,7 @@ function resetStage(stage){
 // -------- User-drawn Area Analysis (visual overlay, never a scoring input) --------
 const drawnAreas=[];
 let areaIdCounter=0, selectedAreaId=null, drawVertices=[],drawPointer=null;
+let candidateNameField='';
 let drawMode='polygon';
 let areaRunRevision=0,areaResultsDirty=false;
 function areaMessage(message,busy=false){
@@ -905,6 +1106,20 @@ function initializeAreaLayers(){
  addOverlayLayer({id:'area-draft-outline',type:'line',source:'area-draft',filter:['==',['geometry-type'],'Polygon'],paint:{'line-color':'#07445d','line-width':2.5,'line-dasharray':[2,1]}});
  addOverlayLayer({id:'area-draft-line',type:'line',source:'area-draft',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#07445d','line-width':3,'line-dasharray':[2,1]}});
  addOverlayLayer({id:'area-draft-vertices',type:'circle',source:'area-draft',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#fff','circle-stroke-color':'#07516c','circle-stroke-width':2,'circle-radius':5}});
+ map.on('mousemove','user-areas-fill',event=>{
+  if(drawingArea||!state.areaPolygonsVisible||!event.features?.length)return;
+  const area=drawnAreas.find(a=>a.id===event.features[0].properties?.area_id);
+  if(!area)return;
+  if(!areaHoverPopup)areaHoverPopup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'reference-tooltip'});
+  const card=document.createElement('b');card.textContent=area.name;
+  areaHoverPopup.setLngLat(event.lngLat).setDOMContent(card).addTo(map);
+ });
+ map.on('mouseleave','user-areas-fill',()=>{if(areaHoverPopup){areaHoverPopup.remove();areaHoverPopup=null;}});
+ map.on('click','user-areas-fill',event=>{
+  if(drawingArea||!state.areaPolygonsVisible)return;
+  const id=event.features?.[0]?.properties?.area_id;
+  if(id){selectedAreaId=id;activeWorkspace('areas');refreshAreaMap();renderAreaResults();}
+ });
  map.on('click',onAreaMapClick);
  map.on('dblclick',onAreaDoubleClick);
  map.on('mousemove',onAreaMouseMove);
@@ -996,6 +1211,93 @@ function finishDrawingArea(){
  drawnAreas.push(area);selectedAreaId=area.id;
  endDrawingMode();refreshAreaMap();renderAreaResults();recalculateAreas();
 }
+// v0.4.83: restore one-candidate-per-feature GeoJSON import alongside Area Analysis drawing.
+// Candidate areas use the same polygon overlay, accurate overlap calculation, score deltas
+// and exports as drawn areas. Inputs are not uploaded to a server.
+const MAX_IMPORTED_AREAS=800;
+const MAX_IMPORT_BYTES=25*1024*1024;
+async function importCandidateAreaFiles(fileList){
+ const files=Array.from(fileList||[]);
+ if(!files.length)return;
+ if(!state.data){areaMessage('Load the analysis grid before adding candidate polygons.');return;}
+ if(drawingArea)endDrawingMode();
+ const input=$('candidateAreaFile');
+ const status=$('candidateUploadStatus');
+ status.textContent=`Reading ${files.length} file${files.length===1?'':'s'}…`;
+ const bytes=files.reduce((n,f)=>n+f.size,0);
+ if(bytes>MAX_IMPORT_BYTES){status.textContent='GeoJSON uploads exceed the 25 MB combined limit.';input.value='';return;}
+ const imported=[];let rejected=0;
+ for(const file of files){
+  if(!/\.(geojson|json)$/i.test(file.name)){rejected++;continue;}
+  try{
+   const obj=JSON.parse(await file.text());
+   const fc=obj.type==='FeatureCollection'?obj.features:obj.type==='Feature'?[obj]:['Polygon','MultiPolygon'].includes(obj.type)?[{type:'Feature',properties:{},geometry:obj}]:[];
+   if(!Array.isArray(fc)||!fc.length)throw new Error('File is not a GeoJSON FeatureCollection');
+   if(obj.crs && !/(CRS84|4326)/i.test(JSON.stringify(obj.crs)))throw new Error('Requires WGS84 longitude/latitude coordinates (EPSG:4326)');
+   for(let i=0;i<fc.length;i++){
+    if(imported.length+drawnAreas.length>=MAX_IMPORTED_AREAS){rejected+=fc.length-i;break;}
+    const f=fc[i],geometry=f?.geometry,properties=f?.properties||{};
+    if(!['Polygon','MultiPolygon'].includes(geometry?.type)){rejected++;continue;}
+    if(!validCandidateGeometry(geometry)){rejected++;continue;}
+    const name=importAreaName(properties,file.name,i+1);
+    imported.push({name,geometry,properties,source:file.name,sourceIndex:i+1});
+   }
+  }catch(error){rejected++;console.warn('Could not import polygon GeoJSON:',file.name,error);}
+ }
+ for(const r of imported){
+  const id='area-'+(++areaIdCounter);
+  drawnAreas.push({id,name:r.name,geometry:r.geometry,result:null,sourceFile:r.source,sourceIndex:r.sourceIndex,properties:r.properties});
+  selectedAreaId=id;
+ }
+ input.value='';
+ if(imported.length){
+  activeWorkspace('areas');refreshAreaMap();renderAreaResults();recalculateAreas();
+ }
+ updateCandidateNamingFields();
+ status.textContent=`${imported.length} candidate polygon${imported.length===1?'':'s'} added${rejected?`; ${rejected} invalid or unsupported feature${rejected===1?'':'s'} skipped`:''}.`;
+}
+function importAreaName(props,filename,index){
+ for(const key of ['NAME','name','Name','PLAN_NAME','AREA_NAME','area_name','LABEL','label','ID','id']){
+  const value=props?.[key];if(value!==null&&value!==undefined&&String(value).trim())return String(value).trim().slice(0,80);
+ }
+ return `${filename.replace(/\.(geojson|json)$/i,'')} · ${index}`.slice(0,80);
+}
+function updateCandidateNamingFields(){
+ const input=$('candidateNameFieldFromUpload');if(!input)return;
+ const fields=new Set();for(const a of drawnAreas)if(a.sourceFile)Object.keys(a.properties||{}).forEach(k=>fields.add(k));
+ const choices=[...fields].sort((a,b)=>a.localeCompare(b));
+ input.replaceChildren(new Option('Automatic name or feature number',''));
+ for(const key of choices)input.add(new Option(key,key));
+ if(choices.includes(candidateNameField))input.value=candidateNameField;
+ else{candidateNameField='';input.value='';}
+}
+function setCandidateNameField(name){
+ candidateNameField=name;
+ for(const a of drawnAreas){
+  if(!a.sourceFile)continue;
+  const v=name?a.properties?.[name]:null;
+  if(v!==null&&v!==undefined&&String(v).trim())a.name=String(v).trim().slice(0,80);
+  else if(!name)a.name=importAreaName(a.properties,a.sourceFile,a.sourceIndex||1);
+ }
+ refreshAreaMap();renderAreaResults();
+}
+function validCandidateGeometry(geom){
+ // Validate complete rings and lon/lat coordinates before letting polygon-clipping process them.
+ const polygons=geometryAsMultiPolygon(geom);
+ if(!polygons.length)return false;
+ for(const poly of polygons){
+  if(!Array.isArray(poly)||!poly.length)return false;
+  for(const ring of poly){
+   if(!Array.isArray(ring)||ring.length<4)return false;
+   for(const pt of ring)if(!Array.isArray(pt)||pt.length<2||!Number.isFinite(pt[0])||
+      !Number.isFinite(pt[1])||Math.abs(pt[0])>180||Math.abs(pt[1])>90)return false;
+   if(!coordsEqual(ring[0],ring[ring.length-1]))return false;
+  }
+ }
+ const box=bboxOfGeometry(geom);
+ return !!(box&&(box[2]-box[0])*(box[3]-box[1])>1e-13);
+}
+// Clear selection and naming controls alongside all saved/drawn polygons.
 function clearAllAreas(silent=false){
  ++areaRunRevision;drawnAreas.length=0;selectedAreaId=null;areaIdCounter=0;
  if(drawingArea)endDrawingMode();
@@ -1039,7 +1341,16 @@ function renderAreaResults(){
  for(const id of ['exportAreasCSV','exportAreasGeoJSON','clearAreas'])$(id).disabled=!drawnAreas.length;
  const list=$('areasList');list.replaceChildren();
  if(!drawnAreas.length){list.innerHTML='<div class="area-empty">No areas drawn yet. The map stays interactive while you edit scenario weights.</div>';return;}
- for(const area of drawnAreas){
+ const sorting=$('areaSortOrder')?.value||'original';
+ const ordered=[...drawnAreas];
+ if(sorting==='name')ordered.sort((a,b)=>a.name.localeCompare(b.name));
+ else if(sorting==='high'||sorting==='low')ordered.sort((a,b)=>{
+  const va=a.result?.scores.combined,vb=b.result?.scores.combined;
+  if(!isFiniteNumber(va))return isFiniteNumber(vb)?1:0;
+  if(!isFiniteNumber(vb))return -1;
+  return sorting==='high'?Number(vb)-Number(va):Number(va)-Number(vb);
+ });
+ for(const area of ordered){
   const card=document.createElement('article');card.className='area-result-card'+(area.id===selectedAreaId?' selected':'');
   const result=area.result;
   const km2=multiPolygonAreaM2(geometryAsMultiPolygon(area.geometry),(bboxOfGeometry(area.geometry)[1]+bboxOfGeometry(area.geometry)[3])/2)/1e6;
@@ -1047,6 +1358,21 @@ function renderAreaResults(){
   <div class="area-result-figures">${['baseline','gap','combined'].map(mode=>areaScoreHTML(result?.scores??null,mode,result?.defaults?.[mode]??null)).join('')}</div>
   <div class="area-result-meta">${km2<1?`${(km2*100).toFixed(2)} ha`:`${km2.toFixed(2)} km²`} drawn · ${result?`${(result.overlapM2/10000).toFixed(2)} ha in analysis grid · ${result.touched.toLocaleString()} overlapping cells`:'Calculating area averages…'}</div>
   ${result?`<div class="area-coverage">Valid scored area: Baseline ${result.coverage.baseline.toFixed(0)}% · Gap ${result.coverage.gap.toFixed(0)}% · Combined ${result.coverage.combined.toFixed(0)}%</div>`:''}`;
+  if(area.sourceFile){
+    const meta=document.createElement('p');meta.className='area-import-source';meta.textContent='Imported from '+area.sourceFile;
+    card.append(meta);
+  }
+  if(result?.factorScores && state.meta?.factors?.length){
+    const details=document.createElement('details');details.className='area-factor-details';
+    const summary=document.createElement('summary');summary.textContent='Individual factor scores';details.append(summary);
+    for(const factor of state.meta.factors){
+      const line=document.createElement('div');line.className='area-factor-row';
+      const label=document.createElement('span');label.textContent=factor.name+' · '+currentStage(factor,state.settings);
+      const value=document.createElement('b');value.textContent=prettyScore(result.factorScores[factor.id]);
+      line.append(label,value);details.append(line);
+    }
+    card.append(details);
+  }
   card.querySelector('.area-name-input').addEventListener('change',e=>{area.name=e.target.value.trim().slice(0,80)||area.name;refreshAreaMap();});
   card.querySelector('.area-zoom').addEventListener('click',()=>zoomToArea(area.id));
   card.querySelector('.area-delete').addEventListener('click',()=>deleteArea(area.id));
@@ -1068,7 +1394,7 @@ function recalculateAreas(){
   const deadline=performance.now()+12;
   try{
    while(ai<total && performance.now()<deadline){
-    const area=drawnAreas[ai];if(!acc)acc=newAreaAccumulator(area.geometry);
+    const area=drawnAreas[ai];if(!acc)acc=newAreaAccumulator(area.geometry,state.meta?.factors?.map(f=>f.id)||[]);
     while(i<features.length && performance.now()<deadline)addCellToAccumulator(acc,features[i++],window.polygonClipping);
     if(i>=features.length){area.result=finishAreaAccumulator(acc);i=0;acc=null;ai++;refreshAreaMap();renderAreaResults();}
    }
@@ -1081,9 +1407,9 @@ function recalculateAreas(){
 }
 function exportAreaSummary(){
  if(!drawnAreas.length)return;
- const rows=[['Area','Baseline','Gap','Combined','Drawn area (ha)','Grid overlap area (ha)','Overlapping cells','Baseline valid area %','Gap valid area %','Combined valid area %','Default Baseline','Default Gap','Default Combined','Baseline change vs default','Gap change vs default','Combined change vs default']];
+ const rows=[['Area','Baseline','Gap','Combined','Drawn area (ha)','Grid overlap area (ha)','Overlapping cells','Baseline valid area %','Gap valid area %','Combined valid area %','Default Baseline','Default Gap','Default Combined','Baseline change vs default','Gap change vs default','Combined change vs default',...(state.meta?.factors||[]).map(f=>f.name)]];
  for(const a of drawnAreas){const b=bboxOfGeometry(a.geometry);const full=multiPolygonAreaM2(geometryAsMultiPolygon(a.geometry),(b[1]+b[3])/2);
-  const r=a.result;rows.push([a.name,r?.scores.baseline??'',r?.scores.gap??'',r?.scores.combined??'',full/1e4,r?r.overlapM2/1e4:'',r?.touched??'',r?.coverage.baseline??'',r?.coverage.gap??'',r?.coverage.combined??'',r?.defaults?.baseline??'',r?.defaults?.gap??'',r?.defaults?.combined??'',r?.deltas?.baseline??'',r?.deltas?.gap??'',r?.deltas?.combined??'']);}
+  const r=a.result;rows.push([a.name,r?.scores.baseline??'',r?.scores.gap??'',r?.scores.combined??'',full/1e4,r?r.overlapM2/1e4:'',r?.touched??'',r?.coverage.baseline??'',r?.coverage.gap??'',r?.coverage.combined??'',r?.defaults?.baseline??'',r?.defaults?.gap??'',r?.defaults?.combined??'',r?.deltas?.baseline??'',r?.deltas?.gap??'',r?.deltas?.combined??'',...(state.meta?.factors||[]).map(f=>r?.factorScores?.[f.id]??'')]);}
  const quoted=rows.map(row=>row.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
  downloadBlob(new Blob([quoted],{type:'text/csv;charset=utf-8'}),'planning-opportunity-area-scores.csv');
 }
@@ -1095,7 +1421,7 @@ function exportAreaPolygons(){
   baseline_delta:a.result?.deltas?.baseline??null,gap_delta:a.result?.deltas?.gap??null,combined_delta:a.result?.deltas?.combined??null,
   valid_baseline_pct:a.result?.coverage.baseline??null,valid_gap_pct:a.result?.coverage.gap??null,
   valid_combined_pct:a.result?.coverage.combined??null,grid_overlap_m2:a.result?.overlapM2??null,
-  grid_cells:a.result?.touched??null},geometry:a.geometry}))};
+  grid_cells:a.result?.touched??null,...Object.fromEntries((state.meta?.factors||[]).map(f=>['score_'+f.id,a.result?.factorScores?.[f.id]??null]))},geometry:a.geometry}))};
  downloadBlob(new Blob([JSON.stringify(fc,null,2)],{type:'application/geo+json'}),'planning-opportunity-areas.geojson');
 }
 function initializeAreaControls(){
@@ -1144,6 +1470,9 @@ function initializeAreaControls(){
   syncMapLayerWidget();
  });
  syncMapLayerWidget();
+ $('candidateAreaFile').addEventListener('change',event=>importCandidateAreaFiles(event.target.files));
+ $('candidateNameFieldFromUpload').addEventListener('change',event=>setCandidateNameField(event.target.value));
+ $('areaSortOrder').addEventListener('change',renderAreaResults);
  $('drawArea').addEventListener('click',beginDrawingArea);
  $('drawMode').addEventListener('change',()=>{drawMode=$('drawMode').value;});
  $('finishArea').addEventListener('click',finishDrawingArea);

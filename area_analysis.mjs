@@ -64,13 +64,14 @@ export function intersectionAreaM2(areaGeometry,cellGeometry,clipper,latitude){
   const output=clipper.intersection(a,b);
   return multiPolygonAreaM2(output,latitude);
 }
-export function newAreaAccumulator(areaGeometry){
+export function newAreaAccumulator(areaGeometry,factorIds=[]){
   const box=bboxOfGeometry(areaGeometry);
   return {geometry:areaGeometry,bbox:box,latitude:box?(box[1]+box[3])/2:49.25,
     overlapM2:0,touched:0,values:{baseline:0,gap:0,combined:0},
     scoredArea:{baseline:0,gap:0,combined:0},scoredCells:{baseline:0,gap:0,combined:0},
     defaultValues:{baseline:0,gap:0,combined:0},
-    defaultScoredArea:{baseline:0,gap:0,combined:0}};
+    defaultScoredArea:{baseline:0,gap:0,combined:0},
+    factorIds, factorTotals:Object.create(null),factorAreas:Object.create(null)};
 }
 export function addCellToAccumulator(acc,feature,clipper){
   if(!acc?.bbox||!feature?.geometry||!boxesOverlap(acc.bbox,bboxOfGeometry(feature.geometry)))return;
@@ -81,6 +82,14 @@ export function addCellToAccumulator(acc,feature,clipper){
     const value=feature.properties?.[{baseline:'__base',gap:'__gap',combined:'__combined'}[key]];
     if(value===null||value===undefined||!Number.isFinite(Number(value))||Number(value)<1||Number(value)>5)continue;
     acc.values[key]+=area*Number(value);acc.scoredArea[key]+=area;acc.scoredCells[key]++;
+  }
+  // Maintain candidate-area mean for every individual factor. A factor with no
+  // valid intersecting cells stays null rather than becoming an artificial zero.
+  for(const id of acc.factorIds){
+    const value=feature.properties?.[id];
+    if(value===null||value===undefined||!Number.isFinite(Number(value))||Number(value)<1||Number(value)>5)continue;
+    acc.factorTotals[id]=(acc.factorTotals[id]||0)+area*Number(value);
+    acc.factorAreas[id]=(acc.factorAreas[id]||0)+area;
   }
   // Fixed workbook defaults are accumulated using the SAME intersection
   // area as the live scenario. Missing current and default values are tracked
@@ -101,7 +110,9 @@ export function finishAreaAccumulator(acc){
     deltas[key]=scores[key]===null||defaults[key]===null?null:scores[key]-defaults[key];
     coverage[key]=acc.overlapM2>0?100*acc.scoredArea[key]/acc.overlapM2:0;
   }
-  return {scores,defaults,deltas,coverage,overlapM2:acc.overlapM2,touched:acc.touched,
+  const factorScores=Object.fromEntries(acc.factorIds.map(id=>[id,
+    (acc.factorAreas[id]||0)>0?acc.factorTotals[id]/acc.factorAreas[id]:null]));
+  return {scores,defaults,deltas,coverage,factorScores,overlapM2:acc.overlapM2,touched:acc.touched,
     scoredCells:{...acc.scoredCells},scoredArea:{...acc.scoredArea}};
 }
 export function computeAreaScores(geometry,features,clipper){
