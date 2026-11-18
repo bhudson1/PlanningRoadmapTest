@@ -355,3 +355,8 @@
 .area-factor-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-top:1px solid #e4edeb}
 .area-factor-row span{flex:1;color:#506b70}.area-factor-row b{font-variant-numeric:tabular-nums;flex:none}
 .area-import-source{font-size:10px;color:#688087;margin:7px 0 0}
+
+/* v0.4.84 local file picker and visible startup diagnostics */
+.local-picker{cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.local-picker:hover{background:#f1f7f7}
+.load-diagnostic{margin:13px 0 0!important;padding:10px 12px;background:#fff1ec;border:1px solid #dd9f8b;border-radius:6px;color:#8f3428!important;text-align:left;overflow-wrap:anywhere;font-size:12px!important}

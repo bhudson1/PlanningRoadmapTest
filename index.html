@@ -3,7 +3,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f1f2f2"><title>Planning Opportunity | Scenario Explorer</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=0483"></head>
+<link rel="stylesheet" href="styles.css?v=0484"></head>
 <body>
 <div id="shell">
   <main id="map-area" aria-label="Interactive planning opportunity map">
@@ -44,7 +44,7 @@
       <span class="update-status-icon" aria-hidden="true"></span>
       <div class="update-status-body"><strong id="updateStatusText">Updating map…</strong><div class="update-progress-track" aria-hidden="true"><span id="updateProgressBar" class="indeterminate"></span></div></div>
     </div>
-    <div id="loading" class="empty-panel" role="status"><div class="empty-icon">▦</div><h2>Connect your exported analysis</h2><p>Run the new ArcGIS Pro export tool, then place its <code>grid.geojson</code> and <code>meta.json</code> in this site's <code>data</code> folder.</p><div class="empty-actions"><button id="demoBtn" class="button-primary">Preview with synthetic data</button><button id="retryBtn" class="button-light">Try loading exported data</button></div><p class="fine">The demo is synthetic and is not an assessment of Vancouver.</p></div>
+    <div id="loading" class="empty-panel" role="status"><div class="empty-icon">▦</div><h2>Connect your exported analysis</h2><p>Run the new ArcGIS Pro export tool, then place its <code>grid.geojson</code> and <code>meta.json</code> in this site's <code>data</code> folder.</p><div class="empty-actions"><button id="demoBtn" class="button-primary">Preview with synthetic data</button><button id="retryBtn" class="button-light">Try loading exported data</button><label class="button-light local-picker">Select local export files<input type="file" id="localDataFiles" multiple accept=".json,.geojson,application/json" aria-label="Select meta.json and grid.geojson" hidden></label></div><p class="fine">Select both <code>meta.json</code> and <code>grid.geojson</code> to load directly from your computer without a local server. The demo is synthetic and is not an assessment of Vancouver.</p><p id="runtimeStatus" class="load-diagnostic" hidden role="alert"></p></div>
     <div id="legend" class="legend" hidden></div>
     <div id="factorPreviewBanner" class="factor-preview-banner" hidden role="status" aria-live="polite"></div>
     <div id="bottomNote" class="map-footnote">Spreadsheet-default weights · Explore Baseline → Gap → Combined to build a scenario.</div>
@@ -151,5 +151,23 @@
 </div>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/dist/polygon-clipping.umd.min.js"></script>
-<script type="module" src="app.js?v=0483"></script>
+<script>
+(function(){
+  function showProblem(message){
+    if(window.__planningAppReady)return;
+    var p=document.getElementById('runtimeStatus');
+    if(p){p.hidden=false;p.textContent='The application script could not start: '+message;}
+  }
+  window.addEventListener('error',function(e){
+    if(!window.__planningAppReady)showProblem(e.message||'Could not load a required script');
+  });
+  window.addEventListener('unhandledrejection',function(e){
+    if(!window.__planningAppReady)showProblem(String(e.reason||'Failed to load a required script'));
+  });
+  window.addEventListener('load',function(){setTimeout(function(){
+    if(!window.__planningAppReady)showProblem('app.js did not run. Ensure index.html and app.js are in the same folder and clear the browser cache.');
+  },900);});
+})();
+</script>
+<script defer src="app.js?v=0484"></script>
 </body></html>

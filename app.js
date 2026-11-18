@@ -1,6 +1,475 @@
-import {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize,hasScenarioAdjustment} from './model.mjs?v=0483';
-import {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon} from './area_analysis.mjs?v=0483';
-import {rectangleRing,orthogonalCoordinate} from './map_tools.mjs?v=0483';
+/* Planning Opportunity Explorer v0.4.84: standalone classic JavaScript bundle.
+   No .mjs browser imports: works with restricted localhost servers that serve .mjs
+   with application/octet-stream instead of a JavaScript MIME type.
+   Source modules are still included unmodified for review. */
+(function(){
+'use strict';
+const ModelModule = (function(){
+// Pure, dependency-free scoring shared by UI and verification tests.
+const BIVARIATE = [
+  // 4×4 directly sampled from supplied ArcGIS Pro screenshot.
+  // Row order: Baseline LOW → HIGH (vertical Y). Column order: Gap LOW → HIGH (horizontal X).
+  '#faffe3','#a7f7e4','#53eee5','#00e6e6',
+  '#fffca6','#a8e4b7','#58d4c8','#30c2d6',
+  '#fff44d','#a9d28b','#5ebbab','#289fc8',
+  '#ffeb00','#aabf5e','#63a18e','#007bcc'
+];
+const SCORE_STOPS = [
+  [1,'#a60126'],[1.5,'#df412f'],[2,'#f99053'],[2.5,'#fed582'],
+  [3,'#fdfebc'],[3.5,'#c8e881'],[4,'#81c966'],[4.5,'#2a9d53'],[5,'#006837']
+];
+function currentStage(factor, settings){
+  if(factor.movable && ((factor.category === 'Daily Needs' && settings.moveNeeds) ||
+       (factor.category === 'Community Spaces' && settings.moveCommunity) ||
+       (/community centre/i.test(factor.name) && settings.moveCommunity))) return 'Gap';
+  return factor.stage;
+}
+function adjustedFactorScore(properties, factor, settings){
+  const raw=properties[factor.id];
+  if(raw === null || raw === undefined || raw === '') return null;
+  const score=Number(raw);
+  if(!Number.isFinite(score) || score < 1 || score > 5) return null;
+  return factor.stage==='Baseline' && currentStage(factor,settings)==='Gap' ? 6-score : score;
+}
+function stageWeightTotals(factors,settings){
+  const totals={Baseline:0,Gap:0};
+  for(const f of factors) totals[currentStage(f,settings)] += Math.max(0,Number(settings.weights[f.id] ?? 5));
+  return totals;
+}
+function computeScores(properties,factors,settings){
+  const num={Baseline:0,Gap:0}, den={Baseline:0,Gap:0};
+  for(const factor of factors){
+    const w=Math.max(0,Number(settings.weights[factor.id] ?? 5));
+    if(!w) continue;
+    const s=adjustedFactorScore(properties,factor,settings);
+    if(s===null) continue;
+    const st=currentStage(factor,settings);
+    num[st]+=w*s;
+    den[st]+=w;
+  }
+  const baseline=den.Baseline>0?num.Baseline/den.Baseline:null;
+  const gap=den.Gap>0?num.Gap/den.Gap:null;
+  const blend=Math.min(1,Math.max(0,Number(settings.baselineShare??50)/100));
+  // No false combination from a missing stage. Exception: 0% / 100% selected.
+  const combined = blend===1?baseline:blend===0?gap:
+    (baseline !== null && gap !== null ? baseline*blend+gap*(1-blend):null);
+  const cat=x=>x===null?-1:Math.min(3,Math.max(0,Math.floor((x-1))));
+  const a=cat(baseline),b=cat(gap);
+  return {baseline,gap,combined,biv:a<0||b<0?-1:a*4+b};
+}
+function prettyScore(score){return score===null || !Number.isFinite(score)?'—':score.toFixed(2)}
+function ratioText(fraction){
+  if(fraction===null || fraction===undefined || fraction==='') return '—';
+  const n=Number(fraction);
+  return Number.isFinite(n) && n>=0 && n<=1.000001?`${(100*n).toFixed(1)}%`:'—';
+}
+function summarize(features){
+  let n=0,b=0,g=0,c=0,bn=0,gn=0,cn=0;
+  for(const f of features){const p=f.properties;
+    if(p.__base!=null){b+=p.__base;bn++;} if(p.__gap!=null){g+=p.__gap;gn++;}
+    if(p.__combined!=null){c+=p.__combined;cn++;}n++;
+  }
+  return {cells:n,baseline:bn?b/bn:null,gap:gn?g/gn:null,combined:cn?c/cn:null};
+}
+
+// The comparison becomes visible once any parameter differs from the
+// spreadsheet-default scenario, even when the resulting score delta is zero.
+function hasScenarioAdjustment(settings,defaults,factors){
+ if(!settings||!defaults)return false;
+ if(Boolean(settings.moveNeeds)||Boolean(settings.moveCommunity))return true;
+ if(Number(settings.baselineShare??50)!==50)return true;
+ return (factors||[]).some(f=>Number(settings.weights?.[f.id]??defaults[f.id]??0)!==Number(defaults[f.id]??0));
+}
+
+return { BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize,hasScenarioAdjustment };
+})();
+const AreaModule = (function(){
+/* Area-weighted polygon summaries for Planning Opportunity Explorer.
+   Geometry uses the GeoJSON lon/lat coordinates exported by ArcGIS; polygon
+   clipping is delegated to polygon-clipping (MIT) and areas are measured in a
+   local equirectangular tangent plane at the drawn area's mean latitude.
+   Calculations describe the EXPORTED grid scores and scenario weights, not
+   a new resampling of the underlying ArcGIS rasters. */
+const METRES_PER_DEGREE = 111195.0802335329;
+const AREA_SCORE_KEYS = ['baseline','gap','combined'];
+const cachedBounds = new WeakMap();
+function bboxOfGeometry(geometry){
+  if(!geometry || !geometry.coordinates)return null;
+  if(cachedBounds.has(geometry))return cachedBounds.get(geometry);
+  const bounds=[Infinity,Infinity,-Infinity,-Infinity];
+  function walk(x){if(!Array.isArray(x))return;
+    if(x.length>=2 && typeof x[0]==='number' && typeof x[1]==='number'){
+      if(Number.isFinite(x[0]) && Number.isFinite(x[1])){
+        bounds[0]=Math.min(bounds[0],x[0]);bounds[1]=Math.min(bounds[1],x[1]);
+        bounds[2]=Math.max(bounds[2],x[0]);bounds[3]=Math.max(bounds[3],x[1]);
+      }
+    }else for(const p of x)walk(p);
+  }
+  walk(geometry.coordinates);
+  const result=bounds.every(Number.isFinite)?bounds:null;
+  cachedBounds.set(geometry,result);
+  return result;
+}
+function boxesOverlap(a,b){
+  return !!(a&&b && a[0]<b[2] && b[0]<a[2] && a[1]<b[3] && b[1]<a[3]);
+}
+function planarRingArea(ring){
+  if(!ring || ring.length<3)return 0;
+  // Offset to reduce floating-point cancellation from large longitudes.
+  const x0=ring[0][0],y0=ring[0][1];let sum=0;
+  for(let i=0;i<ring.length;i++){
+    const a=ring[i],b=ring[(i+1)%ring.length];
+    sum+=(a[0]-x0)*(b[1]-y0)-(b[0]-x0)*(a[1]-y0);
+  }
+  return Math.abs(sum)/2;
+}
+function multiPolygonAreaM2(multiPolygons,atLatitude){
+  const latitude=Math.max(-85,Math.min(85,Number(atLatitude)||0));
+  const k=METRES_PER_DEGREE*METRES_PER_DEGREE*Math.cos(latitude*Math.PI/180);
+  let squareDegrees=0;
+  for(const polygon of multiPolygons||[]){
+    if(!Array.isArray(polygon)||!polygon.length)continue;
+    let a=planarRingArea(polygon[0]);
+    for(const hole of polygon.slice(1))a-=planarRingArea(hole);
+    squareDegrees+=Math.max(0,a);
+  }
+  return Math.max(0,squareDegrees*k);
+}
+function geometryAsMultiPolygon(geometry){
+  if(geometry?.type==='Polygon')return [geometry.coordinates];
+  if(geometry?.type==='MultiPolygon')return geometry.coordinates;
+  return [];
+}
+function intersectionAreaM2(areaGeometry,cellGeometry,clipper,latitude){
+  if(typeof clipper?.intersection!=='function')throw new Error('Polygon intersection library is unavailable. Check network access and reload.');
+  if(!boxesOverlap(bboxOfGeometry(areaGeometry),bboxOfGeometry(cellGeometry)))return 0;
+  const a=geometryAsMultiPolygon(areaGeometry),b=geometryAsMultiPolygon(cellGeometry);
+  if(!a.length||!b.length)return 0;
+  // polygon-clipping accepts Polygon or MultiPolygon; it respects holes and
+  // split geometries from the ArcGIS study-area clipping step.
+  const output=clipper.intersection(a,b);
+  return multiPolygonAreaM2(output,latitude);
+}
+function newAreaAccumulator(areaGeometry,factorIds=[]){
+  const box=bboxOfGeometry(areaGeometry);
+  return {geometry:areaGeometry,bbox:box,latitude:box?(box[1]+box[3])/2:49.25,
+    overlapM2:0,touched:0,values:{baseline:0,gap:0,combined:0},
+    scoredArea:{baseline:0,gap:0,combined:0},scoredCells:{baseline:0,gap:0,combined:0},
+    defaultValues:{baseline:0,gap:0,combined:0},
+    defaultScoredArea:{baseline:0,gap:0,combined:0},
+    factorIds, factorTotals:Object.create(null),factorAreas:Object.create(null)};
+}
+function addCellToAccumulator(acc,feature,clipper){
+  if(!acc?.bbox||!feature?.geometry||!boxesOverlap(acc.bbox,bboxOfGeometry(feature.geometry)))return;
+  const area=intersectionAreaM2(acc.geometry,feature.geometry,clipper,acc.latitude);
+  if(area<=1e-6)return;
+  acc.touched++;acc.overlapM2+=area;
+  for(const key of AREA_SCORE_KEYS){
+    const value=feature.properties?.[{baseline:'__base',gap:'__gap',combined:'__combined'}[key]];
+    if(value===null||value===undefined||!Number.isFinite(Number(value))||Number(value)<1||Number(value)>5)continue;
+    acc.values[key]+=area*Number(value);acc.scoredArea[key]+=area;acc.scoredCells[key]++;
+  }
+  // Maintain candidate-area mean for every individual factor. A factor with no
+  // valid intersecting cells stays null rather than becoming an artificial zero.
+  for(const id of acc.factorIds){
+    const value=feature.properties?.[id];
+    if(value===null||value===undefined||!Number.isFinite(Number(value))||Number(value)<1||Number(value)>5)continue;
+    acc.factorTotals[id]=(acc.factorTotals[id]||0)+area*Number(value);
+    acc.factorAreas[id]=(acc.factorAreas[id]||0)+area;
+  }
+  // Fixed workbook defaults are accumulated using the SAME intersection
+  // area as the live scenario. Missing current and default values are tracked
+  // independently so we never invent zero scores for NoData cells.
+  const defaultKeys={baseline:'__defaultBase',gap:'__defaultGap',combined:'__defaultCombined'};
+  for(const key of AREA_SCORE_KEYS){
+    const value=feature.properties?.[defaultKeys[key]];
+    if(value===null||value===undefined||!Number.isFinite(Number(value))||Number(value)<1||Number(value)>5)continue;
+    acc.defaultValues[key]+=area*Number(value);
+    acc.defaultScoredArea[key]+=area;
+  }
+}
+function finishAreaAccumulator(acc){
+  const scores={},defaults={},deltas={},coverage={};
+  for(const key of AREA_SCORE_KEYS){
+    scores[key]=acc.scoredArea[key]>0?acc.values[key]/acc.scoredArea[key]:null;
+    defaults[key]=acc.defaultScoredArea[key]>0?acc.defaultValues[key]/acc.defaultScoredArea[key]:null;
+    deltas[key]=scores[key]===null||defaults[key]===null?null:scores[key]-defaults[key];
+    coverage[key]=acc.overlapM2>0?100*acc.scoredArea[key]/acc.overlapM2:0;
+  }
+  const factorScores=Object.fromEntries(acc.factorIds.map(id=>[id,
+    (acc.factorAreas[id]||0)>0?acc.factorTotals[id]/acc.factorAreas[id]:null]));
+  return {scores,defaults,deltas,coverage,factorScores,overlapM2:acc.overlapM2,touched:acc.touched,
+    scoredCells:{...acc.scoredCells},scoredArea:{...acc.scoredArea}};
+}
+function computeAreaScores(geometry,features,clipper){
+  const acc=newAreaAccumulator(geometry);
+  for(const feature of features)addCellToAccumulator(acc,feature,clipper);
+  return finishAreaAccumulator(acc);
+}
+
+return { newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon };
+})();
+const MapToolsModule = (function(){
+// Drawing geometry in WGS84 coordinates.  Shift snapping follows map screen axes;
+// square construction uses Web Mercator x/y metres at the selected location.
+// The source palette in model.mjs also drives this map UI.
+
+const R=6378137, MAX_LAT=85.05112878;
+const toRad=x=>x*Math.PI/180, toDeg=x=>x*180/Math.PI;
+function mercator(ll){const lat=Math.max(-MAX_LAT,Math.min(MAX_LAT,ll[1]));return [R*toRad(ll[0]),R*Math.log(Math.tan(Math.PI/4+toRad(lat)/2))];}
+function lonLat(xy){return [toDeg(xy[0]/R),toDeg(2*Math.atan(Math.exp(xy[1]/R))-Math.PI/2)];}
+function rectangleRing(a,b,square=false){
+ const [x0,y0]=mercator(a);let [x1,y1]=mercator(b);
+ if(square){const side=Math.max(Math.abs(x1-x0),Math.abs(y1-y0));
+  x1=x0+(x1>=x0?side:-side);y1=y0+(y1>=y0?side:-side);}
+ // Coordinates go around the perimeter; never cross diagonally.
+ return [[x0,y0],[x1,y0],[x1,y1],[x0,y1],[x0,y0]].map(lonLat);
+}
+function orthogonalCoordinate(last,point,project,unproject){
+ if(!last)return point;
+ const a=project(last),b=project(point);
+ return unproject(Math.abs(b.x-a.x)>=Math.abs(b.y-a.y)?{x:b.x,y:a.y}:{x:a.x,y:b.y});
+}
+
+return { rectangleRing,orthogonalCoordinate };
+})();
+const OpenDataModule = (function(){
+/* Public City of Vancouver Open Data reference layers (Opendatasoft Explore API v2.1).
+ * Static hosting; no API keys, OAuth, stored tokens, or login; overlay-only.
+ * Uses paginated, map-bounded records instead of downloading entire datasets.
+ */
+const API='https://opendata.vancouver.ca/api/explore/v2.1/catalog/datasets';
+const PUBLIC_CATALOG='https://opendata.vancouver.ca/explore/dataset/';
+const MAX_FEATURES=2000;
+const PAGE_SIZE=100;
+const el=id=>document.getElementById(id);
+const added=[];
+let catalog=null, catalogPromise=null, getMap, getMapLoaded, getLabelAnchor;
+let sequence=0;
+
+function node(tag,cls,label){const e=document.createElement(tag);if(cls)e.className=cls;if(label!==undefined)e.textContent=label;return e;}
+function status(message,type='info'){
+ const p=el('openDataStatus');if(!p)return;
+ p.textContent=message;p.dataset.type=type;
+}
+function safeDatasetId(id){
+ if(!/^[a-z0-9][a-z0-9_-]{1,130}$/i.test(String(id)))throw Error('Enter a valid Vancouver dataset ID.');
+ return String(id);
+}
+async function jsonFetch(url){
+ const response=await fetch(url,{mode:'cors',headers:{Accept:'application/json'}});
+ if(!response.ok){let details='';try{const j=await response.json();details=j.message||j.error||'';}catch(_){}
+  throw Error('Open Data API HTTP '+response.status+(details?' · '+details:''));}
+ return response.json();
+}
+function spatialField(dataset){return (dataset.fields||[]).find(f=>f.type==='geo_shape') || (dataset.fields||[]).find(f=>f.type==='geo_point_2d');}
+function title(dataset){return dataset.metas?.default?.title||dataset.dataset_id;}
+function arrayValues(v){return Array.isArray(v)?v:(typeof v==='string'?[v]:[]);}
+function fieldSummary(dataset){return arrayValues(dataset.metas?.default?.theme).join(', ')||arrayValues(dataset.metas?.default?.keyword).slice(0,2).join(', ')||'Spatial data';}
+function spatialDataset(dataset){return !!spatialField(dataset)&&dataset.data_visible!==false&&dataset.has_records!==false;}
+async function getCatalog(){
+ if(catalog)return catalog;
+ if(catalogPromise)return catalogPromise;
+ catalogPromise=(async()=>{
+  let offset=0,total=Infinity,all=[];
+  while(offset<total&&offset<1000){
+   const params=new URLSearchParams({limit:'100',offset:String(offset)});
+   const data=await jsonFetch(API+'?'+params);
+   if(!Array.isArray(data.results))throw Error('Unexpected catalogue response.');
+   all.push(...data.results);total=Math.max(0,Number(data.total_count)||all.length);
+   offset+=data.results.length;
+   if(!data.results.length)break;
+  }
+  catalog=all.filter(spatialDataset);
+  return catalog;
+ })().catch(e=>{catalogPromise=null;throw e;});
+ return catalogPromise;
+}
+function resultCountLabel(d){const count=d.metas?.default?.records_count;return Number.isFinite(Number(count))?Number(count).toLocaleString()+' records':'Map layer';}
+function renderSearch(list,term){
+ const root=el('openDataResults');root.replaceChildren();
+ const query=term.trim().toLowerCase();
+ const matches=list.filter(d=>{
+  if(!query)return true;
+  const m=d.metas?.default||{};
+  const hay=[d.dataset_id,m.title,...arrayValues(m.keyword),...arrayValues(m.theme)].join(' ').toLowerCase();
+  return query.split(/\s+/).every(t=>hay.includes(t));
+ }).sort((a,b)=>title(a).localeCompare(title(b)));
+ el('openDataCount').textContent=`${matches.length} matching map datasets`;
+ if(!matches.length){root.append(node('p','micro','No spatial datasets match that search. Try “parks”, “schools”, or a dataset ID.'));return;}
+ for(const dataset of matches.slice(0,40)){
+  const row=node('div','portal-item'),info=node('div');
+  info.append(node('strong','',title(dataset)),node('small','',`${fieldSummary(dataset)} · ${resultCountLabel(dataset)}`));
+  const btn=node('button','', 'Add');btn.type='button';
+  btn.setAttribute('aria-label','Add '+title(dataset)+' to map');
+  btn.addEventListener('click',async()=>{
+   btn.disabled=true;btn.textContent='Loading…';
+   try{await addDataset(dataset);}catch(e){status('Could not add '+title(dataset)+': '+e.message,'error');}
+   finally{btn.disabled=false;btn.textContent='Add';}
+  });
+  row.append(info,btn);root.append(row);
+ }
+ if(matches.length>40)root.append(node('p','micro',`Showing first 40 of ${matches.length}. Refine the search to narrow the list.`));
+}
+async function search(){
+ const q=el('openDataSearchText').value;
+ const results=el('openDataResults');
+ results.replaceChildren(node('p','micro','Loading Vancouver’s public spatial-data catalogue…'));
+ status('Checking public datasets…');
+ try{const list=await getCatalog();renderSearch(list,q);status(`Catalogue ready · ${list.length} public spatial datasets. No sign-in required.`,'success');}
+ catch(e){results.replaceChildren(node('p','micro','Could not connect to the City of Vancouver Open Data API. Check network access or browser restrictions.'));
+  status('Catalogue unavailable: '+e.message,'error');}
+}
+function validPoint(value){return Array.isArray(value)&&value.length>=2&&value.slice(0,2).every(Number.isFinite)&&Math.abs(value[0])<=180&&Math.abs(value[1])<=90;}
+function recordGeometry(row,field){
+ const v=row?.[field.name];if(!v)return null;
+ if(field.type==='geo_point_2d'){
+  if(typeof v.lon==='number'&&typeof v.lat==='number')return {type:'Point',coordinates:[v.lon,v.lat]};
+  if(Array.isArray(v)&&v.length>=2){const [a,b]=v;
+   // Opendatasoft's legacy 2D-point arrays are latitude/longitude.
+   const xy=(Math.abs(a)<=90&&Math.abs(b)>90)?[b,a]:[a,b];
+   if(validPoint(xy))return {type:'Point',coordinates:xy};
+  }
+ }
+ let g=v?.geometry||v;
+ if(g?.type==='Feature')g=g.geometry;
+ if(g?.type==='FeatureCollection')return null;
+ if(!g||!['Point','MultiPoint','LineString','MultiLineString','Polygon','MultiPolygon','GeometryCollection'].includes(g.type))return null;
+ return g;
+}
+function normalizeRecords(records,field){
+ const features=[];
+ for(const raw of records){
+  const p=raw?.fields&&typeof raw.fields==='object'?raw.fields:raw;
+  const geometry=recordGeometry(p,field);
+  if(!geometry)continue;
+  const properties={};
+  // Limit popup/property payload and never pass embedded geometry to MapLibre properties.
+  for(const [key,value] of Object.entries(p)){
+   if(key===field.name||typeof value==='object'||key==='recordid')continue;
+   if(value===null||['string','number','boolean'].includes(typeof value))properties[key]=value;
+  }
+  features.push({type:'Feature',geometry,properties});
+ }
+ return features;
+}
+function viewportFilter(map,field){
+ const b=map.getBounds();
+ // ODSQL arguments are latitude/longitude, not GeoJSON longitude/latitude.
+ const fix=n=>Number(n).toFixed(6);
+ const south=Math.max(-90,b.getSouth()),north=Math.min(90,b.getNorth());
+ const west=Math.max(-180,b.getWest()),east=Math.min(180,b.getEast());
+ if(south>=north||west>=east)throw Error('Please zoom the map to a smaller, valid area first.');
+ return `in_bbox(${field.name}, ${fix(south)}, ${fix(west)}, ${fix(north)}, ${fix(east)})`;
+}
+async function fetchFeatures(dataset,field,onProgress){
+ const map=getMap(),where=viewportFilter(map,field),id=safeDatasetId(dataset.dataset_id);
+ const endpoint=API+'/'+id+'/records';
+ const path=offset=>endpoint+'?'+new URLSearchParams({where,limit:String(PAGE_SIZE),offset:String(offset)});
+ const first=await jsonFetch(path(0));
+ if(!Array.isArray(first.results))throw Error('The records endpoint did not return records.');
+ const total=Number(first.total_count)||0;
+ const loaded=[...first.results];
+ const count=Math.min(total,MAX_FEATURES);
+ const starts=[];
+ for(let offset=PAGE_SIZE;offset<count;offset+=PAGE_SIZE)starts.push(offset);
+ // At most three in-flight pages, minimizing rate-limit pressure.
+ for(let i=0;i<starts.length;i+=3){
+  const batch=await Promise.all(starts.slice(i,i+3).map(offset=>jsonFetch(path(offset))));
+  for(const page of batch)loaded.push(...(page.results||[]));
+  if(onProgress)onProgress(loaded.length,count);
+ }
+ const fc={type:'FeatureCollection',features:normalizeRecords(loaded,field).slice(0,MAX_FEATURES)};
+ return {fc,total,truncated:total>MAX_FEATURES,skipped:loaded.length-fc.features.length};
+}
+function geomTypes(fc){const types=new Set();for(const f of fc.features)types.add(f.geometry?.type);return types;}
+function layerIds(entry){return [entry.id+'-fill',entry.id+'-outline',entry.id+'-line',entry.id+'-point'];}
+function attachToMap(entry,fc){
+ const map=getMap(),sid=entry.id;
+ map.addSource(sid,{type:'geojson',data:fc});
+ const anchor=getLabelAnchor()||undefined;
+ // Use geometry filters so datasets with mixed types draw correctly.
+ const specs=[
+  {id:sid+'-fill',type:'fill',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#34799c','fill-opacity':.17}},
+  {id:sid+'-outline',type:'line',filter:['==',['geometry-type'],'Polygon'],paint:{'line-color':'#2c6884','line-width':1.1}},
+  {id:sid+'-line',type:'line',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#2674a5','line-width':2.6}},
+  {id:sid+'-point',type:'circle',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#187ca2','circle-radius':5,'circle-stroke-color':'#fff','circle-stroke-width':1.6}}
+ ];
+ try{for(const spec of specs)map.addLayer({...spec,source:sid},anchor);}
+ catch(e){for(const lid of layerIds(entry))if(map.getLayer(lid))map.removeLayer(lid);if(map.getSource(sid))map.removeSource(sid);throw e;}
+ for(const lid of layerIds(entry)){
+  map.on('click',lid,event=>{
+   const f=event.features?.[0];if(!f)return;
+   // Use textContent to avoid HTML injection from external records.
+   const pane=node('div','opendata-popup');pane.append(node('strong','',entry.name));
+   const properties=Object.entries(f.properties||{}).filter(([,v])=>v!==null&&String(v).length<220).slice(0,6);
+   for(const [key,v] of properties)pane.append(node('div','opendata-prop',`${key.replace(/_/g,' ')}: ${v}`));
+   new maplibregl.Popup({closeButton:true,maxWidth:'290px'}).setLngLat(event.lngLat).setDOMContent(pane).addTo(map);
+  });
+ }
+}
+async function addDataset(dataset){
+ if(!getMapLoaded())throw Error('The map is still loading.');
+ const id=safeDatasetId(dataset.dataset_id);
+ if(added.some(x=>x.dataset.dataset_id===id)){status('That dataset is already shown. Use Reload extent to refresh it.');return;}
+ const field=spatialField(dataset);if(!field)throw Error('This dataset has no supported map geometry.');
+ status(`Loading ${title(dataset)} for the current map extent…`);
+ const fetched=await fetchFeatures(dataset,field,(done,total)=>status(`Loading ${title(dataset)}… ${done.toLocaleString()} of ${total.toLocaleString()} records`));
+ if(!fetched.fc.features.length){status(`No usable map features found in this extent for ${title(dataset)}. Try zooming out and adding it again.`);return;}
+ const entry={id:'vancouver-open-'+(++sequence),name:title(dataset),dataset,field,visible:true,
+  count:fetched.fc.features.length,total:fetched.total,truncated:fetched.truncated};
+ attachToMap(entry,fetched.fc);added.push(entry);renderAdded();
+ const note=entry.truncated?` Showing first ${MAX_FEATURES.toLocaleString()} of ${entry.total.toLocaleString()} matching records; zoom in and reload to see a smaller area.`:'';
+ status(`Added ${entry.name}: ${entry.count.toLocaleString()} features.${note}`,'success');
+}
+function remove(entry){
+ const map=getMap();if(map){for(const id of layerIds(entry))if(map.getLayer(id))map.removeLayer(id);if(map.getSource(entry.id))map.removeSource(entry.id);}
+ const index=added.indexOf(entry);if(index!==-1)added.splice(index,1);renderAdded();
+}
+async function reload(entry){
+ if(!getMapLoaded())throw Error('Map is still loading.');
+ status(`Reloading ${entry.name} for the current map extent…`);
+ const fresh=await fetchFeatures(entry.dataset,entry.field,(count,total)=>status(`Reloading ${entry.name}… ${count} / ${total} records`));
+ // Never clear the existing source if a request fails or returns no matches.
+ if(!fresh.fc.features.length){status(`No features in the new extent for ${entry.name}; prior layer retained.`);return;}
+ getMap().getSource(entry.id)?.setData(fresh.fc);
+ entry.count=fresh.fc.features.length;entry.total=fresh.total;entry.truncated=fresh.truncated;
+ renderAdded();status(`Updated ${entry.name}: ${entry.count.toLocaleString()} features${entry.truncated?' (partial—zoom in for more)':''}.`,'success');
+}
+function renderAdded(){
+ const root=el('openDataAddedList');root.replaceChildren();
+ if(!added.length)return;
+ root.append(node('strong','',`Added open-data layers (${added.length})`));
+ for(const entry of added){
+  const row=node('div','portal-item'),info=node('div');
+  info.append(node('strong','',entry.name),node('small','',`${entry.count.toLocaleString()} map features${entry.truncated?' · limited to current extent / first '+MAX_FEATURES.toLocaleString():''}`));
+  const options=node('div','open-data-row-actions');
+  const visible=node('label','portal-visibility'),check=node('input');check.type='checkbox';check.checked=entry.visible;
+  check.setAttribute('aria-label','Show '+entry.name);
+  check.addEventListener('change',()=>{entry.visible=check.checked;for(const lid of layerIds(entry))if(getMap().getLayer(lid))getMap().setLayoutProperty(lid,'visibility',check.checked?'visible':'none');});
+  visible.append(check,node('span','', 'Show'));
+  const refresh=node('button','', 'Reload extent');refresh.type='button';
+  refresh.addEventListener('click',async()=>{refresh.disabled=true;try{await reload(entry);}catch(e){status(`Could not reload ${entry.name}: ${e.message}`,'error');}finally{refresh.disabled=false;}});
+  const removeBtn=node('button','', 'Remove');removeBtn.type='button';removeBtn.addEventListener('click',()=>remove(entry));
+  const source=node('a','open-data-source','Dataset ↗');source.href=PUBLIC_CATALOG+encodeURIComponent(entry.dataset.dataset_id)+'/';source.target='_blank';source.rel='noopener noreferrer';
+  options.append(visible,refresh,removeBtn,source);row.append(info,options);root.append(row);
+ }
+}
+function initOpenDataWidget(dependencies){
+ ({getMap,getMapLoaded,getLabelAnchor}=dependencies);
+ el('openDataSearch').addEventListener('click',search);
+ el('openDataSearchText').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();search();}});
+ el('openDataPanel').addEventListener('toggle',()=>{if(el('openDataPanel').open&&!catalog)search();});
+ status('Public Vancouver datasets · no sign-in or API key required.');
+}
+// Export small pure helpers to test dataset conversions with synthetic API responses.
+const testHelpers={spatialField,recordGeometry,normalizeRecords,viewportFilter,spatialDataset};
+
+return {initOpenDataWidget};
+})();
+const {BIVARIATE,SCORE_STOPS,currentStage,adjustedFactorScore,computeScores,prettyScore,ratioText,stageWeightTotals,summarize,hasScenarioAdjustment}=ModelModule;
+const {newAreaAccumulator,addCellToAccumulator,finishAreaAccumulator,bboxOfGeometry,multiPolygonAreaM2,geometryAsMultiPolygon}=AreaModule;
+const {rectangleRing,orthogonalCoordinate}=MapToolsModule;
 const $=(id)=>document.getElementById(id);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));
 const isFiniteNumber=x=>x!==null&&x!==undefined&&x!==''&&Number.isFinite(Number(x));
@@ -331,7 +800,7 @@ function requestFactorHover(f){
  },130);
 }
 function createMap(){
-  if(!window.maplibregl){$('loading').innerHTML='<h2>Map library unavailable</h2><p>Connect to the internet to load the MapLibre library, or vendor it for offline use.</p>';return;}
+  if(!window.maplibregl){$('runtimeStatus').textContent='The external MapLibre map library did not load. The data-loader can still test your files, but the map needs network access to its library or a local copy.';$('runtimeStatus').hidden=false;return;}
   map = new maplibregl.Map({container:'map',style:VECTOR_STYLE_URL,center:[-123.12,49.25],zoom:11.5,
     attributionControl:false,pitch:0,maxPitch:45});
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
@@ -416,13 +885,13 @@ function renderReferenceLayers(){
    // retained as an interactive hit target for mouse hover.
    if(!glu && !map.getLayer('webref-line-'+spec.id))addReferenceLayer({id:'webref-line-'+spec.id,type:'line',source:sid,
     ...(parcel?{minzoom:12}:{}),layout:{visibility:visible},paint:{
-      'line-color':parcel?'#aeb8ba':c,'line-width':parcel:.6:1.7,
-      'line-opacity':parcel:.52:.94}});
+      'line-color':parcel?'#aeb8ba':c,'line-width':parcel ? 0.6 : 1.7,
+      'line-opacity':parcel ? 0.52 : 0.94}});
   }else if(g==='polyline'||g==='line'){
    if(!map.getLayer('webref-line-'+spec.id))addReferenceLayer({id:'webref-line-'+spec.id,type:'line',source:sid,
     ...(parcel?{minzoom:12}:{}),layout:{visibility:visible},paint:{
-     'line-color':parcel?'#aeb8ba':c,'line-width':parcel:.65:2.3,
-     'line-opacity':parcel:.55:.95}});
+     'line-color':parcel?'#aeb8ba':c,'line-width':parcel ? 0.65 : 2.3,
+     'line-opacity':parcel ? 0.55 : 0.95}});
   }else if(g==='point'||g==='multipoint'){
    if(!map.getLayer('webref-point-'+spec.id))addReferenceLayer({id:'webref-point-'+spec.id,type:'circle',source:sid,
     layout:{visibility:visible},paint:{'circle-color':c,'circle-radius':5,'circle-stroke-width':1.6,'circle-stroke-color':'#fff'}});
@@ -1015,8 +1484,11 @@ async function fetchData(demo=false){
  const root=demo?'data/demo_':'data/';
  const urls=demo?['data/demo_meta.json','data/demo_grid.geojson']:['data/meta.json','data/grid.geojson'];
  const responses=await Promise.all(urls.map(u=>fetch(u,{cache:'no-cache'})));
- if(!responses.every(x=>x.ok))throw new Error('The published data files are not available');
+ if(!responses.every(x=>x.ok)){const failures=responses.map((response,i)=>response.ok?null:`${urls[i]}: HTTP ${response.status}`).filter(Boolean);throw new Error('Could not load '+failures.join(', '));}
  const [meta,geojson]=await Promise.all(responses.map(r=>r.json()));
+ return activateData(meta,geojson,demo);
+}
+function activateData(meta,geojson,demo=false){
  if(!Array.isArray(meta.factors)||!Array.isArray(geojson.features)||!geojson.features.length)throw new Error('Invalid or empty model data');
  for(const f of meta.factors){if(!f.id||!f.stage||!f.name)throw new Error('Incomplete factor metadata');}
  clearAllAreas(true);
@@ -1048,9 +1520,22 @@ async function fetchData(demo=false){
  loadReferences(demo?{references:[]}:meta).catch(error=>console.warn('Reference layers could not load:',error));
 }
 function updateSplit(){const b=Number($('split').value);$('splitBase').textContent=b+'%';$('splitGap').textContent=(100-b)+'%';$('combinedFormula').textContent=`Combined = ${b}% Baseline + ${100-b}% Gap`;}
+async function loadSelectedLocalFiles(fileList){
+ const status=$('runtimeStatus');
+ const files=Array.from(fileList||[]);
+ const getFile=(name)=>files.find(f=>f.name.toLowerCase()===name);
+ const metaFile=getFile('meta.json'),gridFile=getFile('grid.geojson');
+ if(!metaFile||!gridFile){setError('Choose BOTH meta.json and grid.geojson in the same file picker');return;}
+ try{
+  status.textContent='Loading selected files from this computer…';status.hidden=false;
+  const [meta,geojson]=await Promise.all([metaFile.text(),gridFile.text()]).then(values=>values.map(s=>JSON.parse(s)));
+  activateData(meta,geojson,false);
+  status.hidden=true;
+ }catch(error){setError('Could not read selected files: '+String(error?.message||error));}
+}
 function loadScenarioFromHash(){try{if(location.hash.startsWith('#scenario='))return JSON.parse(decodeURIComponent(location.hash.slice(10)));}catch(e){}return null;}
 function updateRoutes(){state.settings.moveNeeds=$('moveNeeds').checked;state.settings.moveCommunity=$('moveCommunity').checked;buildWeights();scheduleUpdate('full');}
-function setError(message){$('loading').hidden=false;$('loading').querySelector('h2').textContent='Load planning data';
+function setError(message){const status=$('runtimeStatus');if(status){status.textContent=String(message);status.hidden=false;}$('loading').hidden=false;$('loading').querySelector('h2').textContent='Load planning data';
  const p=$('loading').querySelector('p');if(p)p.innerHTML=`${escapeHTML(message)}. Export <code>grid.geojson</code> and <code>meta.json</code> from the ArcGIS tool into the site’s <code>data/</code> folder.`;}
 function downloadBlob(blob,name){const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function exportCSV(){if(!state.data)return;const rows=[['GRID_ID','BASELINE','GAP','COMBINED']];
@@ -1492,6 +1977,7 @@ function initializeAreaControls(){
 function setHandlers(){
  $('demoBtn').addEventListener('click',()=>fetchData(true).catch(e=>setError(e.message)));
  $('retryBtn').addEventListener('click',()=>fetchData(false).catch(e=>setError(e.message)));
+ $('localDataFiles').addEventListener('change',event=>loadSelectedLocalFiles(event.target.files));
  $('resetView').addEventListener('click',()=>updateMap(true));
  $('basemapChoice').addEventListener('change',setBasemapVisibility);
  for(const tab of ['baseline','gap','combined']){
@@ -1521,6 +2007,8 @@ function setHandlers(){
  $('exportScenario').addEventListener('click',exportCSV);
  initializeAreaControls();
 }
-setHandlers();createMap();
-import('./opendata.mjs').then(({initOpenDataWidget})=>initOpenDataWidget({getMap:()=>map,getMapLoaded:()=>state.mapLoaded,getLabelAnchor:()=>nativeLabelAnchor})).catch(e=>console.warn('Vancouver Open Data panel unavailable',e));
-fetchData(false).catch(e=>{console.info('Model data not yet exported:',e.message);});
+setHandlers();window.__planningAppReady=true;createMap();
+Promise.resolve(OpenDataModule).then(({initOpenDataWidget})=>initOpenDataWidget({getMap:()=>map,getMapLoaded:()=>state.mapLoaded,getLabelAnchor:()=>nativeLabelAnchor})).catch(e=>console.warn('Vancouver Open Data panel unavailable',e));
+fetchData(false).catch(e=>{console.info('Planning model load failed:',e.message);setError(e.message);});
+
+})();
